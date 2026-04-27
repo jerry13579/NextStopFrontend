@@ -180,10 +180,7 @@ export function WelcomeSection({
             <div className="flex items-center justify-between gap-4 p-5">
               <div className="flex-1 min-w-0">
                 <p className="text-xs text-[var(--color-textMuted)] mb-1">Up Next Today</p>
-                <h2 className="text-xl font-bold text-[var(--color-textPrimary)] mb-0.5">{nextClass.code}</h2>
-                <p className="text-sm text-[var(--color-textMuted)] truncate">
-                  {nextClass.location} • {nextClass.startTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                </p>
+                <h2 className="text-xl font-bold text-[var(--color-textPrimary)]">{nextClass.code}</h2>
               </div>
               <button
                 onClick={onNavigateToRoutes}
@@ -201,7 +198,7 @@ export function WelcomeSection({
                     </div>
                     <p className="text-sm font-bold text-[var(--color-textPrimary)] leading-tight line-clamp-2">{homeRouteMetrics.locationValue}</p>
                     <p className="text-xs text-[var(--color-textMuted)] mt-0.5">Location</p>
-                    <p className="text-[11px] text-[var(--color-textSecondary)] mt-1 leading-tight">{homeRouteMetrics.locationDetail}</p>
+                    <p className="text-[11px] text-[var(--color-textSecondary)] mt-1 leading-tight">{nextClass.startTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</p>
                   </div>
                 </div>
                 <div className="bg-white p-4">

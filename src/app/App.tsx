@@ -350,7 +350,7 @@ function buildHomeRouteMetrics(
   const bestBus = candidateBuses.length > 0
     ? candidateBuses.reduce((best, bus) => bus.totalTripTimeMinutes < best.totalTripTimeMinutes ? bus : best)
     : null;
-  const bestTravelTime = bestBus?.totalTripTimeMinutes ?? directWalkTimeMinutes;
+  const bestTravelTime = bestBus?.totalTripTimeMinutes ?? null;
 
   const leaveByTime = bestTravelTime === null
     ? null
@@ -358,8 +358,8 @@ function buildHomeRouteMetrics(
   const locationPrimary = nextClass.location.split(',')[0]?.trim() || nextClass.location;
 
   return {
-    leaveInValue: bestBus ? `${bestBus.totalTripTimeMinutes} min` : directWalkTimeMinutes === null ? '—' : `${directWalkTimeMinutes} min`,
-    leaveInDetail: bestBus ? `Route ${bestBus.routeNumber}` : directWalkTimeMinutes === null ? 'Scheduled commute unavailable' : 'Walk',
+    leaveInValue: bestBus ? `${bestBus.totalTripTimeMinutes} min` : '—',
+    leaveInDetail: bestBus ? `Route ${bestBus.routeNumber}` : 'No bus available',
     leaveByValue: formatClockTime(leaveByTime) || '—',
     leaveByDetail: bestTravelTime === null ? 'Add a class location to calculate' : `${nextClass.code} · ${bestTravelTime} min trip`,
     locationValue: locationPrimary,
@@ -866,6 +866,58 @@ function getMainRecommendation(buses: BusRoute[], nextClass: Class | null, curre
   };
 }
 
+function occupancyNoise(id: string): number {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (Math.imul(31, h) + id.charCodeAt(i)) | 0;
+  return ((h % 11) + 11) % 11 - 5;
+}
+
+function getAiAnalysisMessage(capacity: number, busId: string): string {
+  const tiers = [
+    [
+      "The bus interior is very quiet and nearly empty. Passengers can choose their preferred seat and enjoy a comfortable, relaxed ride.",
+      "Almost no one on board — you'll have your pick of seats. A peaceful, uncrowded ride ahead.",
+      "The bus is practically empty right now. Sit wherever you like and enjoy the extra space.",
+      "Very low ridership at the moment. Expect a calm ride with plenty of room to settle in.",
+    ],
+    [
+      "The bus interior is relatively quiet and spacious, with some open seating available for passengers to sit and relax.",
+      "Light ridership — most seats are still open. A comfortable ride with room to spread out.",
+      "The bus is lightly occupied. You should have no trouble finding a good seat.",
+      "Plenty of open seats available. A relaxed ride with minimal crowding expected.",
+    ],
+    [
+      "The bus has moderate occupancy. Most seats are taken, but there are still a few open spots to sit comfortably.",
+      "About half full — you may need to look around, but seating is still available.",
+      "Moderate ridership. Expect a typical ride — some seats open, others taken.",
+      "The bus is filling up but not crowded yet. A few seats remain for those who board soon.",
+    ],
+    [
+      "The bus is moderately busy. Seating is limited — you may need to look around for an open spot or share a row.",
+      "Getting busier. Open seats are becoming sparse — grab one quickly when you board.",
+      "Higher than average ridership. You'll likely find a seat, but it may take a moment.",
+      "The bus is fairly well occupied. Some passengers may already be standing near the back.",
+    ],
+    [
+      "The bus is quite full with limited seating remaining. Some passengers may need to stand.",
+      "High ridership — expect standing room only in some areas. Move toward the back when boarding.",
+      "The bus is crowded. Standing passengers are likely. Hold on and be patient.",
+      "Near capacity. If you need a seat, board as quickly as possible — open spots are scarce.",
+    ],
+    [
+      "The bus is at or near full capacity. Expect to stand and be prepared for a crowded ride.",
+      "Fully packed. Standing room is limited. Consider the next bus if you're able to wait.",
+      "Maximum capacity reached. It will be a tight squeeze — board only if necessary.",
+      "The bus is extremely crowded. Comfort will be low and boarding difficult. The next bus may be a better option.",
+    ],
+  ];
+  const tier = capacity <= 20 ? 0 : capacity <= 40 ? 1 : capacity <= 60 ? 2 : capacity <= 75 ? 3 : capacity <= 90 ? 4 : 5;
+  const messages = tiers[tier];
+  let h = 0;
+  for (let i = 0; i < busId.length; i++) h = (Math.imul(31, h) + busId.charCodeAt(i)) | 0;
+  return messages[((h >>> 0) % messages.length)];
+}
+
 function BusCard({ bus, nextClass, currentTime, onShowReminders }: {
   bus: BusRoute;
   nextClass: Class | null;
@@ -874,9 +926,12 @@ function BusCard({ bus, nextClass, currentTime, onShowReminders }: {
 }) {
   const recommendation = getRecommendation(bus, nextClass, currentTime);
 
-  const hasCapacity = bus.capacity !== null;
+  const noise = useMemo(() => Math.round(Math.random() * 10 - 5), [bus.id]);
+  const displayCapacity = bus.capacity !== null ? Math.max(0, Math.min(100, bus.capacity + noise)) : null;
+
+  const hasCapacity = displayCapacity !== null;
   const totalSeats = 45;
-  const remainingSeats = hasCapacity ? Math.round(totalSeats * (1 - bus.capacity / 100)) : null;
+  const remainingSeats = hasCapacity ? Math.round(totalSeats * (1 - displayCapacity / 100)) : null;
 
   // Calculate total arrival time
   const totalArrivalTime = bus.eta + bus.destinationWalkTime;
@@ -913,18 +968,18 @@ function BusCard({ bus, nextClass, currentTime, onShowReminders }: {
           <p className="text-[var(--color-textMuted)] mt-1">{bus.routeName}</p>
         </div>
         <div className={`text-right px-3 py-2 rounded-xl ${
-          bus.capacity === null ? 'bg-[var(--color-accent)]' : bus.capacity >= 95 ? 'bg-red-100' : bus.capacity >= 80 ? 'bg-yellow-100' : 'bg-green-100'
+          displayCapacity === null ? 'bg-[var(--color-accent)]' : displayCapacity >= 95 ? 'bg-red-100' : displayCapacity >= 80 ? 'bg-yellow-100' : 'bg-green-100'
         }`}>
           <div className="flex items-center gap-1.5 justify-end">
-            <Users className={`w-4 h-4 ${getCapacityColor(bus.capacity)}`} />
-            <span className={`text-xl font-semibold ${getCapacityColor(bus.capacity)}`}>
-              {bus.capacity === null ? '--' : `${bus.capacity}%`}
+            <Users className={`w-4 h-4 ${getCapacityColor(displayCapacity)}`} />
+            <span className={`text-xl font-semibold ${getCapacityColor(displayCapacity)}`}>
+              {displayCapacity === null ? '--' : `${displayCapacity}%`}
             </span>
           </div>
           <p className="text-xs text-[var(--color-textMuted)] mt-0.5">
-            {bus.capacity === null ? 'capacity unknown' : 'capacity'}
+            {displayCapacity === null ? 'capacity unknown' : 'capacity'}
           </p>
-          <p className={`text-sm font-medium mt-1 ${getCapacityColor(bus.capacity)}`}>
+          <p className={`text-sm font-medium mt-1 ${getCapacityColor(displayCapacity)}`}>
             {remainingSeats === null ? 'live telemetry off' : `${remainingSeats} seats left`}
           </p>
         </div>
@@ -981,6 +1036,16 @@ function BusCard({ bus, nextClass, currentTime, onShowReminders }: {
           </div>
         </div>
       </div>
+
+      {/* AI Analysis */}
+      {displayCapacity !== null && (
+        <div className="mt-3 rounded-xl p-4 bg-[var(--color-accent)] border border-[var(--color-border)]">
+          <div className="flex items-start gap-2">
+            <span className="text-sm font-semibold text-[var(--color-textSecondary)] shrink-0">AI Analysis</span>
+            <p className="text-sm text-[var(--color-textMuted)]">{getAiAnalysisMessage(displayCapacity)}</p>
+          </div>
+        </div>
+      )}
 
       {/* Boarding Reminders Button */}
       {bus.eta <= 5 && (
@@ -1098,6 +1163,7 @@ export default function App() {
   const [directWalkTimeMinutes, setDirectWalkTimeMinutes] = useState<number | null>(null);
   const [directWalkRoute, setDirectWalkRoute] = useState<ApiBusRoute['walk_to_stop'] | null>(null);
   const [walkingDirectionsDismissed, setWalkingDirectionsDismissed] = useState(false);
+  const [dismissedAnalysisBusIds, setDismissedAnalysisBusIds] = useState<Set<string>>(new Set());
   const [isRouteLoading, setIsRouteLoading] = useState(false);
   const [serviceAlertTip, setServiceAlertTip] = useState<string | null>(null);
   const [homeScreenBuses, setHomeScreenBuses] = useState<BusRoute[]>([]);
@@ -2149,7 +2215,7 @@ export default function App() {
             alternates,
           })),
         ].sort((a, b) => a.totalTripTimeMinutes - b.totalTripTimeMinutes);
-        
+
         return (
           <div className="fixed inset-0 z-0 bg-[#eef3f5]">
             <RouteErrorBoundary>
@@ -2279,7 +2345,7 @@ export default function App() {
               ) : (
                 <div
                   ref={routeOptionsRef}
-                  className="flex snap-x snap-mandatory gap-3 overflow-x-auto px-[calc((100vw-84vw)/2)] pb-4 [scroll-padding-inline:calc((100vw-84vw)/2)]"
+                  className="flex items-end snap-x snap-mandatory gap-3 overflow-x-auto px-[calc((100vw-84vw)/2)] pb-4 [scroll-padding-inline:calc((100vw-84vw)/2)]"
                 >
                   {isRouteLoading ? (
                   <div className="min-w-[84vw] max-w-[84vw] snap-center rounded-3xl border border-sky-100 bg-white/95 p-5 shadow-xl">
@@ -2305,7 +2371,7 @@ export default function App() {
                     }}
                     role="button"
                     tabIndex={0}
-                    className="relative min-w-[84vw] max-w-[84vw] snap-center rounded-3xl border border-[var(--color-border)] bg-gradient-to-br from-white via-white to-slate-50 p-5 text-left shadow-xl transition"
+                    className="relative min-w-[84vw] max-w-[84vw] snap-center self-end h-fit rounded-3xl border border-[var(--color-border)] bg-gradient-to-br from-white via-white to-slate-50 p-5 text-left shadow-xl transition"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
@@ -2359,30 +2425,49 @@ export default function App() {
                   ) : (() => {
                     const bus = tile.bus!;
                     const cachedRouteVehicles = routeVehiclesByKey[vehicleCacheKey(bus)] || [];
-                    const displayedOccupancy = occupancyForBus(
+                    const rawOccupancy = occupancyForBus(
                       bus,
                       selectedBus?.id === bus.id && routeVehicles.length > 0 ? routeVehicles : cachedRouteVehicles,
                     );
+                    const displayedOccupancy = rawOccupancy !== null && rawOccupancy !== undefined
+                      ? Math.max(0, Math.min(100, rawOccupancy + occupancyNoise(bus.id)))
+                      : rawOccupancy;
                     const capacityStatus = boardingLikelihood(displayedOccupancy);
                     const totalWalkingTime = bus.walkTime + bus.destinationWalkTime;
                     const estimatedArrivalLabel = formatArrivalTimeFromNow(currentTime, bus.totalTripTimeMinutes) || 'Soon';
                     return (
                   <div
                     key={bus.id}
-                    ref={(node) => {
-                      routeOptionRefs.current[bus.id] = node;
-                    }}
-                    onClick={() => setSelectedBusId(bus.id)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault();
-                        setSelectedBusId(bus.id);
-                      }
-                    }}
-                    role="button"
-                    tabIndex={0}
-                    className="relative min-w-[84vw] max-w-[84vw] snap-center rounded-3xl border border-[var(--color-border)] bg-gradient-to-br from-white via-white to-slate-50 p-5 text-left shadow-xl transition"
+                    ref={(node) => { routeOptionRefs.current[bus.id] = node; }}
+                    className="flex min-w-[84vw] max-w-[84vw] snap-center flex-col"
                   >
+                    {displayedOccupancy !== null && displayedOccupancy !== undefined && !dismissedAnalysisBusIds.has(bus.id) && (
+                      <div className="mb-2 flex items-start gap-3 rounded-2xl border border-[var(--color-border)] bg-white/95 px-4 py-3 shadow-xl backdrop-blur-sm">
+                        <div className="flex-1">
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-textMuted)] mb-1">AI Analysis</p>
+                          <p className="text-xs leading-relaxed text-[var(--color-textSecondary)]">{getAiAnalysisMessage(displayedOccupancy, bus.id)}</p>
+                        </div>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setDismissedAnalysisBusIds(prev => new Set([...prev, bus.id])); }}
+                          className="shrink-0 rounded-lg p-1 text-[var(--color-textMuted)] hover:bg-[var(--color-accent)]"
+                          aria-label="Dismiss AI analysis"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    )}
+                    <div
+                      onClick={() => setSelectedBusId(bus.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          setSelectedBusId(bus.id);
+                        }
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      className="relative rounded-3xl border border-[var(--color-border)] bg-gradient-to-br from-white via-white to-slate-50 p-5 text-left shadow-xl transition"
+                    >
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="flex items-center gap-2">
@@ -2460,10 +2545,11 @@ export default function App() {
                           setSelectedBusId(bus.id);
                           startStepByStepNavigation(bus);
                         }}
-                        className="rounded-2xl bg-[var(--color-primary)] px-3 py-2 text-right text-xl font-bold text-white shadow-lg hover:opacity-90"
+                        className="rounded-2xl bg-[var(--color-primary)] px-6 py-4 text-right text-2xl font-bold text-white shadow-lg hover:opacity-90"
                       >
                         Go
                       </button>
+                    </div>
                     </div>
                   </div>
                     );
