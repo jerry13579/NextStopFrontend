@@ -33,6 +33,11 @@ import {
 } from './utils/api';
 import { loadTrips, calculateStreak, getTodaysTrips, Trip } from './utils/tripTracking';
 import { getThemeById, applyTheme, getCustomTheme, ColorTheme } from './utils/colorThemes';
+import {
+  requestNotificationPermission,
+  scheduleCommuteNotifications,
+  setCommuteNotificationTapHandler,
+} from './utils/notifications';
 import nextStopLogo from '../imports/nextstop-logo-full.png';
 
 interface Class {
@@ -1181,6 +1186,24 @@ export default function App() {
     localStorage.setItem('smartNotificationsEnabled', JSON.stringify(notificationsEnabled));
   }, [notificationsEnabled]);
 
+  // Keep a stable ref so the tap handler always has fresh closures without re-registering.
+  const notificationTapRef = useRef<(destination: string) => void>(() => {});
+  notificationTapRef.current = (destination: string) => {
+    forceNextRoutePlan();
+    setRouteDestination(destination);
+    setDestinationPosition(null);
+    setSearchQuery(destination);
+    setSearchResults([]);
+    setSelectedBusId(null);
+    setWalkingDirectionsDismissed(false);
+    setActiveSection('routes');
+  };
+
+  useEffect(() => {
+    setCommuteNotificationTapHandler((dest) => notificationTapRef.current(dest));
+    requestNotificationPermission().catch(() => {});
+  }, []);
+
   useEffect(() => {
     if (!navigator.geolocation) return;
 
@@ -1571,6 +1594,10 @@ export default function App() {
       source: 'schedule',
       cachedAt: Date.now(),
     });
+
+    if (previews?.length) {
+      scheduleCommuteNotifications(previews, classEntries).catch(() => {});
+    }
   };
 
   const addManualClass = ({ code, name, sections }: {
