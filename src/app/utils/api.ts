@@ -258,6 +258,87 @@ export interface ReverseLocationResult {
   address?: string;
 }
 
+export interface LocalEat {
+  id: string;
+  name: string;
+  type: 'cafe' | 'restaurant' | 'quick-bites' | 'dessert';
+  emoji: string;
+  rating: number | null;
+  price_level: 1 | 2 | 3 | 4;
+  distance_miles: number | null;
+  walk_time_minutes: number | null;
+  address: string;
+  hours: string;
+  description: string;
+  is_open: boolean;
+  is_favorite: boolean;
+  cuisine_type: string;
+  student_discount?: {
+    percentage: number;
+    details: string;
+    valid_until?: string | null;
+    is_new?: boolean;
+  } | null;
+}
+
+export interface FetchLocalEatsOptions {
+  category?: LocalEat['type'] | null;
+  dealsOnly?: boolean;
+  favoritesOnly?: boolean;
+  location?: Coordinates | null;
+  token?: string | null;
+  signal?: AbortSignal;
+}
+
+export interface UserPreferences {
+  smart_departure_alerts: boolean;
+  capacity_alerts: boolean;
+  delay_notifications: boolean;
+  theme_id?: string | null;
+}
+
+export interface ApiTrip {
+  id: string;
+  date: string;
+  class_code: string;
+  class_name: string;
+  scheduled_time: string;
+  actual_arrival_time: string;
+  was_on_time: boolean;
+  mode: 'bus' | 'walk';
+  bus_line?: string | null;
+  distance_km: number;
+  steps?: number | null;
+  calories_burned?: number | null;
+}
+
+export interface CreateTripLogInput {
+  idempotency_key: string;
+  class_id: string;
+  class_code: string;
+  class_name: string;
+  scheduled_time: string;
+  actual_arrival_time: string;
+  mode: 'bus' | 'walk';
+  bus_line?: string | null;
+  distance_km: number;
+  steps?: number | null;
+  calories_burned?: number | null;
+}
+
+export interface TripStatsSummary {
+  period: 'today' | 'week' | 'semester';
+  trip_count: number;
+  on_time_count: number;
+  on_time_rate: number;
+  streak_days: number;
+  distance_km: number;
+  steps: number;
+  calories_burned: number;
+  co2_saved_grams: number;
+  transit_minutes: number;
+}
+
 export interface ServiceAlertResult {
   summary: string;
   subject?: string | null;
@@ -277,7 +358,8 @@ export async function fetchPlanTrip(
   destination: string,
   userLocation?: Coordinates | null,
   destinationLocation?: Coordinates | null,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  options?: { mode?: 'all' | 'bus'; includeWalk?: boolean }
 ): Promise<PlanTripResponse> {
   const params = new URLSearchParams({ start, destination });
   if (userLocation) {
@@ -288,12 +370,13 @@ export async function fetchPlanTrip(
     params.set('destination_lat', destinationLocation.lat.toString());
     params.set('destination_lng', destinationLocation.lng.toString());
   }
+  if (options?.mode) {
+    params.set('mode', options.mode);
+  }
+  if (options?.includeWalk !== undefined) {
+    params.set('include_walk', String(options.includeWalk));
+  }
   const url = `${API_BASE_URL}/plan-trip?${params.toString()}`;
-  console.info('[NextStop API] Loading route plan', {
-    apiBaseUrl: API_BASE_URL,
-    hasUserLocation: Boolean(userLocation),
-    hasDestinationLocation: Boolean(destinationLocation),
-  });
   const response = await fetchWithTimeout(url, { signal }, ROUTE_PLAN_TIMEOUT_MS);
 
   if (!response.ok) {
@@ -301,6 +384,124 @@ export async function fetchPlanTrip(
   }
 
   return response.json();
+}
+
+export async function fetchLocalEats({
+  category,
+  dealsOnly,
+  favoritesOnly,
+  location,
+  token,
+  signal,
+}: FetchLocalEatsOptions = {}): Promise<LocalEat[]> {
+  const params = new URLSearchParams();
+  if (category) params.set('category', category);
+  if (dealsOnly) params.set('deals_only', 'true');
+  if (favoritesOnly) params.set('favorites_only', 'true');
+  if (location) {
+    params.set('lat', String(location.lat));
+    params.set('lng', String(location.lng));
+  }
+  const query = params.toString();
+  const response = await fetchWithTimeout(`${API_BASE_URL}/local-eats${query ? `?${query}` : ''}`, {
+    headers: authHeaders(token),
+    signal,
+  });
+  if (!response.ok) {
+    throw new Error(`Local Eats request failed with status ${response.status}`);
+  }
+  const data = await response.json();
+  return Array.isArray(data) ? data : data.eateries ?? [];
+}
+
+export async function setLocalEatFavorite(id: string, isFavorite: boolean, token?: string | null): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/local-eats/${encodeURIComponent(id)}/favorite`, {
+    method: isFavorite ? 'PUT' : 'DELETE',
+    headers: authHeaders(token),
+  });
+  if (!response.ok) {
+    throw new Error(`Local Eats favorite update failed with status ${response.status}`);
+  }
+}
+
+export async function fetchUserPreferences(token: string): Promise<UserPreferences> {
+  const response = await fetch(`${API_BASE_URL}/user/preferences`, {
+    headers: authHeaders(token),
+  });
+  if (!response.ok) {
+    throw new Error(`Preferences request failed with status ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function updateUserPreferences(token: string, preferences: Partial<UserPreferences>): Promise<UserPreferences> {
+  const response = await fetch(`${API_BASE_URL}/user/preferences`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders(token) } as HeadersInit,
+    body: JSON.stringify(preferences),
+  });
+  if (!response.ok) {
+    throw new Error(`Preferences update failed with status ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function fetchTrips(token: string, from?: Date, to?: Date): Promise<ApiTrip[]> {
+  const params = new URLSearchParams();
+  if (from) params.set('from', from.toISOString());
+  if (to) params.set('to', to.toISOString());
+  const query = params.toString();
+  const response = await fetch(`${API_BASE_URL}/trips${query ? `?${query}` : ''}`, {
+    headers: authHeaders(token),
+  });
+  if (!response.ok) {
+    throw new Error(`Trips request failed with status ${response.status}`);
+  }
+  const data = await response.json();
+  return Array.isArray(data) ? data : data.trips ?? [];
+}
+
+export async function createTripLog(token: string, trip: CreateTripLogInput): Promise<ApiTrip> {
+  const response = await fetch(`${API_BASE_URL}/trips`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders(token) } as HeadersInit,
+    body: JSON.stringify(trip),
+  });
+  if (!response.ok) {
+    throw new Error(`Trip log failed with status ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function fetchTripStats(token: string, period: TripStatsSummary['period']): Promise<TripStatsSummary> {
+  const params = new URLSearchParams({ period });
+  const response = await fetch(`${API_BASE_URL}/stats/summary?${params.toString()}`, {
+    headers: authHeaders(token),
+  });
+  if (!response.ok) {
+    throw new Error(`Stats request failed with status ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function exportUserData(token: string): Promise<Blob> {
+  const response = await fetch(`${API_BASE_URL}/user/export`, {
+    headers: authHeaders(token),
+  });
+  if (!response.ok) {
+    throw new Error(`Data export failed with status ${response.status}`);
+  }
+  return response.blob();
+}
+
+export async function clearUserData(token: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/user/data`, {
+    method: 'DELETE',
+    headers: authHeaders(token),
+  });
+  if (!response.ok) {
+    throw new Error(`Data deletion failed with status ${response.status}`);
+  }
 }
 
 export async function importCalendar(

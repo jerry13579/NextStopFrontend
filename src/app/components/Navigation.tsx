@@ -1,12 +1,11 @@
-import { Home, MapPin, Trophy, Settings, UtensilsCrossed } from 'lucide-react';
+import { Home, MapPin, Settings, UtensilsCrossed } from 'lucide-react';
 
 interface NavigationProps {
   activeSection: 'welcome' | 'routes' | 'local-eats' | 'settings';
   onSectionChange: (section: 'welcome' | 'routes' | 'local-eats' | 'settings') => void;
-  streakCount: number;
 }
 
-export function Navigation({ activeSection, onSectionChange, streakCount }: NavigationProps) {
+export function Navigation({ activeSection, onSectionChange }: NavigationProps) {
   const navItems = [
     { id: 'welcome' as const, icon: Home, label: 'Home' },
     { id: 'routes' as const, icon: MapPin, label: 'Routes' },
@@ -33,11 +32,6 @@ export function Navigation({ activeSection, onSectionChange, streakCount }: Navi
             >
               <div className="relative">
                 <Icon className={`w-6 h-6 ${isActive ? 'scale-110' : ''} transition-transform`} />
-                {item.badge !== undefined && item.badge > 0 && (
-                  <span className="absolute -top-2 -right-2 w-5 h-5 bg-[var(--color-primary)] text-white text-xs rounded-full flex items-center justify-center font-bold">
-                    {item.badge}
-                  </span>
-                )}
               </div>
               <span className={`text-xs font-medium ${isActive ? 'font-semibold' : ''}`}>
                 {item.label}

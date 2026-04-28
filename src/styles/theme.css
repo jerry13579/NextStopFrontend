@@ -50,6 +50,18 @@
   --color-textPrimary: #4a4a4a;
   --color-textSecondary: #6a6a6a;
   --color-textMuted: #8b8680;
+  --color-success: #168a55;
+  --color-successSurface: #e9f7ef;
+  --color-successBorder: #b8e6cd;
+  --color-warning: #b7791f;
+  --color-warningSurface: #fff7df;
+  --color-warningBorder: #f2d58a;
+  --color-danger: #c2415a;
+  --color-dangerSurface: #fff0f3;
+  --color-dangerBorder: #f2bcc7;
+  --color-info: #4276a5;
+  --color-infoSurface: #edf5fb;
+  --color-infoBorder: #bfd7eb;
 }
 
 .dark {

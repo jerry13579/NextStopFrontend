@@ -55,10 +55,10 @@ export function ColorThemeSelector({ currentTheme, onThemeChange, customTheme, o
                         e.stopPropagation();
                         onEditCustom();
                       }}
-                      className="w-6 h-6 rounded-full bg-blue-100 hover:bg-blue-200 flex items-center justify-center transition-colors"
+                      className="w-6 h-6 rounded-full bg-[var(--color-infoSurface)] hover:opacity-90 flex items-center justify-center transition-colors"
                       title="Edit custom theme"
                     >
-                      <Edit2 className="w-3 h-3 text-blue-600" />
+                      <Edit2 className="w-3 h-3 text-[var(--color-info)]" />
                     </button>
                   )}
                   {onDeleteCustom && (
@@ -67,10 +67,10 @@ export function ColorThemeSelector({ currentTheme, onThemeChange, customTheme, o
                         e.stopPropagation();
                         setShowDeleteConfirm(true);
                       }}
-                      className="w-6 h-6 rounded-full bg-red-100 hover:bg-red-200 flex items-center justify-center transition-colors"
+                      className="w-6 h-6 rounded-full bg-[var(--color-dangerSurface)] hover:opacity-90 flex items-center justify-center transition-colors"
                       title="Delete custom theme"
                     >
-                      <Trash2 className="w-3 h-3 text-red-600" />
+                      <Trash2 className="w-3 h-3 text-[var(--color-danger)]" />
                     </button>
                   )}
                 </div>
@@ -97,7 +97,7 @@ export function ColorThemeSelector({ currentTheme, onThemeChange, customTheme, o
                   style={{ backgroundColor: theme.colors.secondary }}
                 />
                 <div
-                  className="w-8 h-8 rounded-lg shadow-sm border border-gray-200"
+                  className="w-8 h-8 rounded-lg shadow-sm border border-[var(--color-border)]"
                   style={{ backgroundColor: theme.colors.accent }}
                 />
               </div>
@@ -122,8 +122,8 @@ export function ColorThemeSelector({ currentTheme, onThemeChange, customTheme, o
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl">
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
-                <Trash2 className="w-6 h-6 text-red-600" />
+              <div className="w-12 h-12 bg-[var(--color-dangerSurface)] rounded-full flex items-center justify-center">
+                <Trash2 className="w-6 h-6 text-[var(--color-danger)]" />
               </div>
               <div>
                 <h3 className="font-bold text-[var(--color-textPrimary)]">Delete Custom Theme?</h3>
@@ -136,13 +136,13 @@ export function ColorThemeSelector({ currentTheme, onThemeChange, customTheme, o
             <div className="flex gap-3">
               <button
                 onClick={() => setShowDeleteConfirm(false)}
-                className="flex-1 px-4 py-2.5 bg-gray-100 text-gray-700 font-semibold rounded-xl hover:bg-gray-200 transition-colors"
+                className="flex-1 px-4 py-2.5 bg-[var(--color-accent)] text-[var(--color-textSecondary)] font-semibold rounded-xl hover:bg-[var(--color-border)] transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleDeleteCustom}
-                className="flex-1 px-4 py-2.5 bg-red-600 text-white font-semibold rounded-xl hover:bg-red-700 transition-colors"
+                className="flex-1 px-4 py-2.5 bg-[var(--color-danger)] text-white font-semibold rounded-xl hover:opacity-90 transition-opacity"
               >
                 Delete
               </button>

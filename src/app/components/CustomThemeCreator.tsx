@@ -153,7 +153,7 @@ export function CustomThemeCreator({ onSave, onClose, initialColors }: CustomThe
         <div className="sticky bottom-0 bg-white p-6 border-t border-[var(--color-border)] rounded-b-3xl flex gap-3">
           <button
             onClick={onClose}
-            className="flex-1 px-6 py-3 bg-gray-100 text-gray-700 font-semibold rounded-xl hover:bg-gray-200 transition-colors"
+            className="flex-1 px-6 py-3 bg-[var(--color-accent)] text-[var(--color-textSecondary)] font-semibold rounded-xl hover:bg-[var(--color-border)] transition-colors"
           >
             Cancel
           </button>

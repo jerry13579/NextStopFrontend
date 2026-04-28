@@ -555,39 +555,37 @@ export function BusMap({
     }
 
     const bounds = new window.google.maps.LatLngBounds();
-    const boundsTarget: string[] = [];
-    const addPoints = (points: Array<{ lat: number; lng: number }>, label: string) => {
+    const addPoints = (points: Array<{ lat: number; lng: number }>) => {
       if (points.length === 0) return;
-      boundsTarget.push(label);
       points.forEach((point) => bounds.extend(point));
     };
 
     if (navigationState?.active) {
-      addPoints([toLatLng(userPosition)], 'current_location');
+      addPoints([toLatLng(userPosition)]);
       if (navigationState.currentStep === 'walk_to_boarding') {
-        if (boardingPoint) addPoints([boardingPoint], 'boarding_stop');
-        addPoints(walkToStopPath, 'walk_to_boarding');
+        if (boardingPoint) addPoints([boardingPoint]);
+        addPoints(walkToStopPath);
       } else if (navigationState.currentStep === 'wait_for_bus') {
-        if (boardingPoint) addPoints([boardingPoint], 'boarding_stop');
-        if (selectedVehicle) addPoints([{ lat: selectedVehicle.lat, lng: selectedVehicle.lng }], 'approaching_bus');
+        if (boardingPoint) addPoints([boardingPoint]);
+        if (selectedVehicle) addPoints([{ lat: selectedVehicle.lat, lng: selectedVehicle.lng }]);
       } else if (navigationState.currentStep === 'ride_bus') {
-        if (selectedVehicle) addPoints([{ lat: selectedVehicle.lat, lng: selectedVehicle.lng }], 'current_bus');
-        if (alightingPoint) addPoints([alightingPoint], 'alighting_stop');
-        addPoints(busRoutePath, 'remaining_bus_segment');
+        if (selectedVehicle) addPoints([{ lat: selectedVehicle.lat, lng: selectedVehicle.lng }]);
+        if (alightingPoint) addPoints([alightingPoint]);
+        addPoints(busRoutePath);
       } else if (navigationState.currentStep === 'exit_bus' || navigationState.currentStep === 'walk_to_destination' || navigationState.currentStep === 'arrived') {
-        if (alightingPoint) addPoints([alightingPoint], 'alighting_stop');
-        if (destinationPosition) addPoints([toLatLng(destinationPosition)], 'destination');
-        addPoints(walkFromStopPath, 'walk_to_destination');
+        if (alightingPoint) addPoints([alightingPoint]);
+        if (destinationPosition) addPoints([toLatLng(destinationPosition)]);
+        addPoints(walkFromStopPath);
       }
     } else {
-      addPoints([toLatLng(userPosition)], 'current_location');
-      if (destinationPosition) addPoints([toLatLng(destinationPosition)], 'destination');
-      addPoints(directWalkPath, 'direct_walk');
-      if (boardingPoint) addPoints([boardingPoint], 'boarding_stop');
-      if (alightingPoint) addPoints([alightingPoint], 'alighting_stop');
-      addPoints(walkToStopPath, 'walk_to_boarding');
-      addPoints(busRoutePath, 'bus_segment');
-      addPoints(walkFromStopPath, 'walk_to_destination');
+      addPoints([toLatLng(userPosition)]);
+      if (destinationPosition) addPoints([toLatLng(destinationPosition)]);
+      addPoints(directWalkPath);
+      if (boardingPoint) addPoints([boardingPoint]);
+      if (alightingPoint) addPoints([alightingPoint]);
+      addPoints(walkToStopPath);
+      addPoints(busRoutePath);
+      addPoints(walkFromStopPath);
     }
 
     const navigationActive = Boolean(navigationState?.active);
@@ -624,39 +622,16 @@ export function BusMap({
       lastFitBoundsKeyRef.current = boundsKey;
     }
 
-    if (selectedBus) {
-      console.log('[Transit Debug]', {
-        route_id: selectedBus.route_id ?? null,
-        route_short_name: selectedBus.route_short_name ?? selectedBus.route_number ?? null,
-        direction_id: selectedBus.direction_id ?? null,
-        trip_id: selectedBus.trip_id ?? null,
-        shape_id: selectedBus.shape_id ?? null,
-        boarding_stop: selectedBus.boarding_stop
-          ? { id: selectedBus.boarding_stop.stop_id, name: selectedBus.boarding_stop.stop_name }
-          : null,
-        alighting_stop: selectedBus.alighting_stop
-          ? { id: selectedBus.alighting_stop.stop_id, name: selectedBus.alighting_stop.stop_name }
-          : null,
-        boarding_before_alighting: selectedBus.boarding_before_alighting ?? null,
-        shape_points_drawn: busRoutePath.length,
-        stop_markers_drawn: stopsToRender.length,
-        active_buses_drawn: routeVehicleMarkersRef.current.length,
-        bus_arrival_times: routeVehicles.map((vehicle) => ({ vehicle_id: vehicle.vehicle_id, arrival_minutes: vehicle.arrival_minutes ?? null })),
-        displayed_headsigns: routeVehicles.map((vehicle) => vehicle.headsign ?? null),
-        current_navigation_step: navigationState?.currentStep ?? 'overview',
-        map_bounds_target: boundsTarget,
-      });
-    }
   }, [destinationPosition, directWalkRoute, navigationState, routeVehicles, selectedBus, stopPosition, userPosition, walkingDirectionsActive]);
 
   return (
     <>
       <div ref={containerRef} className="absolute inset-0" />
       {loadError && (
-        <div className="absolute inset-0 flex items-center justify-center bg-[#f0f5f8] p-6 text-center">
+        <div className="absolute inset-0 flex items-center justify-center bg-[var(--color-background)] p-6 text-center">
         <div className="rounded-xl bg-white p-4 shadow">
-          <p className="text-sm font-medium text-[#4a4a4a]">Google Maps unavailable</p>
-          <p className="mt-1 text-xs text-[#8b8680]">Retrying Google Maps...</p>
+          <p className="text-sm font-medium text-[var(--color-textPrimary)]">Google Maps unavailable</p>
+          <p className="mt-1 text-xs text-[var(--color-textMuted)]">Retrying Google Maps...</p>
         </div>
       </div>
       )}

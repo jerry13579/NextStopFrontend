@@ -32,9 +32,7 @@ interface HomeRouteMetrics {
   leaveInValue: string;
   leaveInDetail: string;
   leaveByValue: string;
-  leaveByDetail: string;
   locationValue: string;
-  locationDetail: string;
 }
 
 interface WelcomeSectionProps {
@@ -237,7 +235,7 @@ export function WelcomeSection({
 
           {routeAlert && (
             <div className="bg-white rounded-2xl p-4 border border-[var(--color-border)] shadow-sm mb-4">
-              <p className="text-sm font-medium text-red-600">{routeAlert}</p>
+              <p className="text-sm font-medium text-[var(--color-danger)]">{routeAlert}</p>
             </div>
           )}
         </>
@@ -459,18 +457,18 @@ export function WelcomeSection({
             <div className="grid grid-cols-2 gap-3 mb-4">
               <div className="bg-white rounded-xl p-4">
                 <div className="flex items-center gap-2 mb-2">
-                  <Calendar className="w-4 h-4 text-purple-600" />
-                  <p className="text-xs text-purple-700 font-medium">Steps Walked</p>
+                  <Calendar className="w-4 h-4 text-[var(--color-primary)]" />
+                  <p className="text-xs text-[var(--color-primary)] font-medium">Steps Walked</p>
                 </div>
-                <p className="text-2xl font-bold text-purple-700">{totalSteps.toLocaleString()}</p>
+                <p className="text-2xl font-bold text-[var(--color-primary)]">{totalSteps.toLocaleString()}</p>
               </div>
 
               <div className="bg-white rounded-xl p-4">
                 <div className="flex items-center gap-2 mb-2">
-                  <MapPin className="w-4 h-4 text-green-600" />
-                  <p className="text-xs text-green-700 font-medium">CO₂ Saved</p>
+                  <MapPin className="w-4 h-4 text-[var(--color-success)]" />
+                  <p className="text-xs text-[var(--color-success)] font-medium">CO₂ Saved</p>
                 </div>
-                <p className="text-2xl font-bold text-green-700">{co2Saved}g</p>
+                <p className="text-2xl font-bold text-[var(--color-success)]">{co2Saved}g</p>
               </div>
             </div>
 
@@ -494,23 +492,23 @@ export function WelcomeSection({
             </div>
           )}
           {homeRouteStatus === 'live' && (
-            <div className="flex items-center gap-2 rounded-full bg-white/90 backdrop-blur-sm border border-green-200 px-3 py-1.5 text-xs shadow-md">
-              <Radio className="h-3 w-3 text-green-500" />
-              <span className="font-medium text-green-700">Live</span>
+            <div className="flex items-center gap-2 rounded-full bg-white/90 backdrop-blur-sm border border-[var(--color-successBorder)] px-3 py-1.5 text-xs shadow-md">
+              <Radio className="h-3 w-3 text-[var(--color-success)]" />
+              <span className="font-medium text-[var(--color-success)]">Live</span>
               {homeRouteBestBus && (
                 <>
                   {homeRouteBestBus.delay !== 0 && (
-                    <span className={homeRouteBestBus.delay > 0 ? 'text-red-600' : 'text-green-600'}>
+                    <span className={homeRouteBestBus.delay > 0 ? 'text-[var(--color-danger)]' : 'text-[var(--color-success)]'}>
                       · {Math.abs(homeRouteBestBus.delay)} min {homeRouteBestBus.delay > 0 ? 'late' : 'early'}
                     </span>
                   )}
                   {homeRouteBestBus.delay === 0 && (
-                    <span className="text-green-600">· On time</span>
+                    <span className="text-[var(--color-success)]">· On time</span>
                   )}
                   {homeRouteBestBus.capacity !== null && (
                     <span className={
-                      homeRouteBestBus.capacity >= 85 ? 'text-red-600' :
-                      homeRouteBestBus.capacity >= 60 ? 'text-amber-600' : 'text-green-600'
+                      homeRouteBestBus.capacity >= 85 ? 'text-[var(--color-danger)]' :
+                      homeRouteBestBus.capacity >= 60 ? 'text-[var(--color-warning)]' : 'text-[var(--color-success)]'
                     }>
                       · {homeRouteBestBus.capacity}% full
                     </span>
@@ -521,7 +519,7 @@ export function WelcomeSection({
           )}
           {homeRouteStatus === 'schedule' && (
             <div className="flex items-center gap-2 rounded-full bg-white/90 backdrop-blur-sm border border-[var(--color-border)] px-3 py-1.5 text-xs text-[var(--color-textMuted)] shadow-md">
-              <div className="h-2 w-2 rounded-full bg-gray-400" />
+              <div className="h-2 w-2 rounded-full bg-[var(--color-textMuted)]" />
               <span>Using schedule</span>
             </div>
           )}

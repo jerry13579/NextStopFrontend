@@ -71,6 +71,22 @@ export async function requestNotificationPermission(): Promise<boolean> {
   }
 }
 
+export async function scheduleTestNotification(classCode: string, leaveBy: string): Promise<void> {
+  try {
+    await LocalNotifications.schedule({
+      notifications: [{
+        id: 99999,
+        title: `Get ready to head to ${classCode}`,
+        body: `Leave by ${leaveBy} to catch the bus`,
+        schedule: { at: new Date(Date.now() + 5000) },
+        extra: { type: 'test' },
+      }],
+    });
+  } catch {
+    // no-op in browser / when permissions denied
+  }
+}
+
 export async function scheduleCommuteNotifications(
   previews: CalendarCommutePreview[],
   classes: Array<{ id: string; code: string }>,

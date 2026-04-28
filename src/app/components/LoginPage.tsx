@@ -179,9 +179,9 @@ export function LoginPage({ onLogin }: LoginPageProps) {
               {isSignUp && password.length > 0 && (
                 <div className="mt-2">
                   <div className="flex gap-1">
-                    <div className={`flex-1 h-1 rounded-full ${password.length >= 8 ? 'bg-green-500' : 'bg-gray-300'}`}></div>
-                    <div className={`flex-1 h-1 rounded-full ${password.length >= 12 ? 'bg-green-500' : 'bg-gray-300'}`}></div>
-                    <div className={`flex-1 h-1 rounded-full ${/[!@#$%^&*]/.test(password) ? 'bg-green-500' : 'bg-gray-300'}`}></div>
+                    <div className={`flex-1 h-1 rounded-full ${password.length >= 8 ? 'bg-[var(--color-success)]' : 'bg-[var(--color-border)]'}`}></div>
+                    <div className={`flex-1 h-1 rounded-full ${password.length >= 12 ? 'bg-[var(--color-success)]' : 'bg-[var(--color-border)]'}`}></div>
+                    <div className={`flex-1 h-1 rounded-full ${/[!@#$%^&*]/.test(password) ? 'bg-[var(--color-success)]' : 'bg-[var(--color-border)]'}`}></div>
                   </div>
                   <p className="text-xs text-[var(--color-textMuted)] mt-1">
                     {password.length < 8 ? '✓ Minimum 8 characters' : password.length >= 8 ? '✓ Good length' : ''}
@@ -192,8 +192,8 @@ export function LoginPage({ onLogin }: LoginPageProps) {
             </div>
 
             {error && (
-              <div className="bg-red-50 border-2 border-red-200 rounded-xl p-3">
-                <p className="text-sm text-red-700 text-center">{error}</p>
+              <div className="bg-[var(--color-dangerSurface)] border-2 border-[var(--color-dangerBorder)] rounded-xl p-3">
+                <p className="text-sm text-[var(--color-danger)] text-center">{error}</p>
               </div>
             )}
 
@@ -208,8 +208,13 @@ export function LoginPage({ onLogin }: LoginPageProps) {
 
           {!isSignUp && (
             <div className="mt-4 text-center">
-              <button className="text-sm text-[var(--color-secondary)] hover:opacity-80 transition-opacity">
-                Forgot password?
+              <button
+                type="button"
+                disabled
+                className="text-sm text-[var(--color-textMuted)] opacity-70"
+                title="Password reset requires backend email support."
+              >
+                Forgot password unavailable
               </button>
             </div>
           )}

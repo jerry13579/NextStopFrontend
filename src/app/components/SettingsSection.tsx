@@ -50,8 +50,6 @@ const EMPTY_SECTION: SectionForm = { location: '', days: [], startTime: '10:00',
 interface SettingsSectionProps {
   schedule: Class[];
   onEmojiChange: (classId: string, emoji: string) => void;
-  onClassUpdate?: (classIds: string[], updates: Partial<Class>) => void;
-  onSaveClasses?: (classIds: string[]) => void;
   onReplaceClass?: (groupIds: string[], data: { code: string; name: string; sections: SectionForm[] }) => void;
   onDeleteClass?: (groupIds: string[]) => void;
   onOpenSemesterWrapped?: () => void;
@@ -63,17 +61,22 @@ interface SettingsSectionProps {
   onCustomThemeUpdate?: (theme: ColorTheme) => void;
   onDeleteCustomTheme?: () => void;
   smartNotificationsEnabled?: boolean;
+  capacityAlertsEnabled?: boolean;
+  delayNotificationsEnabled?: boolean;
   onToggleSmartNotifications?: (enabled: boolean) => void;
+  onToggleCapacityAlerts?: (enabled: boolean) => void;
+  onToggleDelayNotifications?: (enabled: boolean) => void;
   onImportCalendar?: (file: File) => Promise<number>;
   onAddClass?: (data: { code: string; name: string; sections: SectionForm[] }) => void;
   onTestNotification?: () => void;
   onSaveMeetingTime?: (meetingIds: string[], startHHMM: string, endHHMM: string) => void;
+  onExportData?: () => Promise<void>;
+  onClearData?: () => Promise<void>;
   homeAddress?: SpecialPlace | null;
   studySpot?: SpecialPlace | null;
   onSetHomeAddress?: (place: SpecialPlace | null) => void;
   onSetStudySpot?: (place: SpecialPlace | null) => void;
   onSearchLocations?: (query: string) => Promise<LocationResult[]>;
-  deviceLocation?: { lat: number; lng: number } | null;
   nextClassForAlerts?: Class | null;
   busesForAlerts?: BusRoute[];
   currentTime?: Date;
@@ -82,8 +85,6 @@ interface SettingsSectionProps {
 export function SettingsSection({
   schedule,
   onEmojiChange,
-  onClassUpdate,
-  onSaveClasses,
   onDeleteClass,
   onOpenSemesterWrapped,
   userEmail,
@@ -94,12 +95,18 @@ export function SettingsSection({
   onCustomThemeUpdate,
   onDeleteCustomTheme,
   smartNotificationsEnabled = true,
+  capacityAlertsEnabled = true,
+  delayNotificationsEnabled = true,
   onToggleSmartNotifications,
+  onToggleCapacityAlerts,
+  onToggleDelayNotifications,
   onImportCalendar,
   onAddClass,
   onReplaceClass,
   onSaveMeetingTime,
   onTestNotification,
+  onExportData,
+  onClearData,
   homeAddress,
   studySpot,
   onSetHomeAddress,
@@ -111,6 +118,7 @@ export function SettingsSection({
 }: SettingsSectionProps) {
   const [showCustomThemeCreator, setShowCustomThemeCreator] = useState(false);
   const [calendarImportStatus, setCalendarImportStatus] = useState<string | null>(null);
+  const [dataActionStatus, setDataActionStatus] = useState<string | null>(null);
   const calendarFileInputRef = useRef<HTMLInputElement | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [addForm, setAddForm] = useState({ code: '', name: '', sections: [{ ...EMPTY_SECTION }] as SectionForm[] });
@@ -159,7 +167,7 @@ export function SettingsSection({
   };
 
   const handleSaveEdit = (groupIds: string[]) => {
-    if (!editForm.code.trim() || editForm.sections.some(s => !s.days.length)) return;
+    if (!editForm.code.trim() || editForm.sections.some(s => !s.days.length || !s.location.trim())) return;
     onReplaceClass?.(groupIds, { code: editForm.code, name: editForm.name, sections: editForm.sections });
     setEditingGroupId(null);
   };
@@ -260,6 +268,30 @@ export function SettingsSection({
     }
   };
 
+  const handleExportData = async () => {
+    if (!onExportData) return;
+    try {
+      setDataActionStatus('Preparing your export...');
+      await onExportData();
+      setDataActionStatus('Export started.');
+    } catch {
+      setDataActionStatus('Could not export data yet. Backend support is required.');
+    }
+  };
+
+  const handleClearData = async () => {
+    if (!onClearData) return;
+    const confirmed = window.confirm('Clear your NextStop data? This resets preferences, saved places, and trip history.');
+    if (!confirmed) return;
+    try {
+      setDataActionStatus('Clearing your data...');
+      await onClearData();
+      setDataActionStatus('Your app data was cleared.');
+    } catch {
+      setDataActionStatus('Could not clear data yet. Backend support is required.');
+    }
+  };
+
   return (
     <div className="max-w-4xl mx-auto">
       {/* Header */}
@@ -341,7 +373,7 @@ export function SettingsSection({
                       <button
                         type="button"
                         onClick={() => handleDeleteClass(group.ids)}
-                        className="flex shrink-0 items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-semibold text-red-600 transition-colors hover:bg-red-100"
+                        className="flex shrink-0 items-center gap-1.5 rounded-lg border border-[var(--color-dangerBorder)] bg-[var(--color-dangerSurface)] px-2.5 py-1.5 text-xs font-semibold text-[var(--color-danger)] transition-colors hover:opacity-90"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                         Delete
@@ -365,14 +397,14 @@ export function SettingsSection({
                       {editForm.sections.length > 1 && (
                         <div className="flex items-center justify-between">
                           <p className="text-xs font-semibold text-[var(--color-textMuted)]">Section {idx + 1}</p>
-                          <button type="button" onClick={() => setEditForm(p => ({ ...p, sections: p.sections.filter((_, i) => i !== idx) }))} className="text-[var(--color-textMuted)] hover:text-red-500"><X className="h-3.5 w-3.5" /></button>
+                          <button type="button" onClick={() => setEditForm(p => ({ ...p, sections: p.sections.filter((_, i) => i !== idx) }))} className="text-[var(--color-textMuted)] hover:text-[var(--color-danger)]"><X className="h-3.5 w-3.5" /></button>
                         </div>
                       )}
                       <input
-                        placeholder="Location (e.g. Soda 306)"
+                        placeholder="Location (e.g. Soda 306) *"
                         value={sec.location}
                         onChange={(e) => updEditSec(idx, { location: e.target.value })}
-                        className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+                        className={`w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[var(--color-accent)] bg-[var(--color-background)] ${sec.location.trim() ? 'border-[var(--color-border)]' : 'border-[var(--color-dangerBorder)]'}`}
                       />
                       <div>
                         <p className="mb-2 text-xs text-[var(--color-textMuted)]">Days</p>
@@ -403,7 +435,7 @@ export function SettingsSection({
                   </button>
                   <div className="flex gap-2 pt-1">
                     <button type="button" onClick={() => setEditingGroupId(null)} className="flex-1 rounded-xl border border-[var(--color-border)] px-4 py-2.5 text-sm font-medium text-[var(--color-textSecondary)] transition-colors hover:bg-[var(--color-accent)]">Cancel</button>
-                    <button type="button" onClick={() => handleSaveEdit(group.ids)} disabled={!editForm.code.trim() || editForm.sections.some(s => !s.days.length)} className="flex-1 rounded-xl bg-[var(--color-primary)] px-4 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40">Save Class</button>
+                    <button type="button" onClick={() => handleSaveEdit(group.ids)} disabled={!editForm.code.trim() || editForm.sections.some(s => !s.days.length || !s.location.trim())} className="flex-1 rounded-xl bg-[var(--color-primary)] px-4 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40">Save Class</button>
                   </div>
                 </div>
               ) : (
@@ -485,14 +517,14 @@ export function SettingsSection({
                 {addForm.sections.length > 1 && (
                   <div className="flex items-center justify-between">
                     <p className="text-xs font-semibold text-[var(--color-textMuted)]">Section {idx + 1}</p>
-                    <button type="button" onClick={() => setAddForm(p => ({ ...p, sections: p.sections.filter((_, i) => i !== idx) }))} className="text-[var(--color-textMuted)] hover:text-red-500"><X className="h-3.5 w-3.5" /></button>
+                    <button type="button" onClick={() => setAddForm(p => ({ ...p, sections: p.sections.filter((_, i) => i !== idx) }))} className="text-[var(--color-textMuted)] hover:text-[var(--color-danger)]"><X className="h-3.5 w-3.5" /></button>
                   </div>
                 )}
                 <input
                   placeholder="Location (e.g. Soda 306) *"
                   value={sec.location}
                   onChange={(e) => updAddSec(idx, { location: e.target.value })}
-                  className={`w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[var(--color-accent)] bg-[var(--color-background)] ${sec.location.trim() ? 'border-[var(--color-border)]' : 'border-red-300'}`}
+                  className={`w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[var(--color-accent)] bg-[var(--color-background)] ${sec.location.trim() ? 'border-[var(--color-border)]' : 'border-[var(--color-dangerBorder)]'}`}
                 />
                 <div>
                   <p className="mb-2 text-xs text-[var(--color-textMuted)]">Days</p>
@@ -548,7 +580,7 @@ export function SettingsSection({
                 checked={smartNotificationsEnabled}
                 onChange={(e) => onToggleSmartNotifications?.(e.target.checked)}
               />
-              <div className="w-11 h-6 bg-[var(--color-border)] peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-[var(--color-accent)] rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[var(--color-primary)]"></div>
+              <div className="w-11 h-6 bg-[var(--color-border)] peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-[var(--color-accent)] rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-[var(--color-border)] after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[var(--color-primary)]"></div>
             </label>
           </div>
 
@@ -558,8 +590,13 @@ export function SettingsSection({
               <p className="text-sm text-[var(--color-textMuted)]">Alert when buses are getting full</p>
             </div>
             <label className="relative inline-flex items-center cursor-pointer">
-              <input type="checkbox" className="sr-only peer" defaultChecked />
-              <div className="w-11 h-6 bg-[var(--color-border)] peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-[var(--color-accent)] rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[var(--color-primary)]"></div>
+              <input
+                type="checkbox"
+                className="sr-only peer"
+                checked={capacityAlertsEnabled}
+                onChange={(e) => onToggleCapacityAlerts?.(e.target.checked)}
+              />
+              <div className="w-11 h-6 bg-[var(--color-border)] peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-[var(--color-accent)] rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-[var(--color-border)] after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[var(--color-primary)]"></div>
             </label>
           </div>
 
@@ -569,8 +606,13 @@ export function SettingsSection({
               <p className="text-sm text-[var(--color-textMuted)]">Get alerts about bus delays</p>
             </div>
             <label className="relative inline-flex items-center cursor-pointer">
-              <input type="checkbox" className="sr-only peer" defaultChecked />
-              <div className="w-11 h-6 bg-[var(--color-border)] peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-[var(--color-accent)] rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[var(--color-primary)]"></div>
+              <input
+                type="checkbox"
+                className="sr-only peer"
+                checked={delayNotificationsEnabled}
+                onChange={(e) => onToggleDelayNotifications?.(e.target.checked)}
+              />
+              <div className="w-11 h-6 bg-[var(--color-border)] peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-[var(--color-accent)] rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-[var(--color-border)] after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[var(--color-primary)]"></div>
             </label>
           </div>
         </div>
@@ -619,7 +661,7 @@ export function SettingsSection({
               <div className="flex items-center gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2.5">
                 <Home className="h-4 w-4 shrink-0 text-[var(--color-primary)]" />
                 <span className="flex-1 truncate text-sm text-[var(--color-textPrimary)]">{homeAddress.name}</span>
-                <button onClick={() => onSetHomeAddress?.(null)} className="text-[var(--color-textMuted)] hover:text-red-500">
+                <button onClick={() => onSetHomeAddress?.(null)} className="text-[var(--color-textMuted)] hover:text-[var(--color-danger)]">
                   <X className="h-4 w-4" />
                 </button>
               </div>
@@ -660,7 +702,7 @@ export function SettingsSection({
               <div className="flex items-center gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2.5">
                 <BookOpen className="h-4 w-4 shrink-0 text-[var(--color-secondary)]" />
                 <span className="flex-1 truncate text-sm text-[var(--color-textPrimary)]">{studySpot.name}</span>
-                <button onClick={() => onSetStudySpot?.(null)} className="text-[var(--color-textMuted)] hover:text-red-500">
+                <button onClick={() => onSetStudySpot?.(null)} className="text-[var(--color-textMuted)] hover:text-[var(--color-danger)]">
                   <X className="h-4 w-4" />
                 </button>
               </div>
@@ -704,7 +746,7 @@ export function SettingsSection({
           <h2 className="text-xl font-semibold text-[var(--color-textPrimary)]">Calendar Integration</h2>
         </div>
         <p className="text-sm text-[var(--color-textMuted)] mb-4">
-          Connect your calendar to automatically sync class schedules
+          Import an .ics calendar file to sync class schedules
         </p>
         <div className="space-y-3">
           <input
@@ -723,11 +765,11 @@ export function SettingsSection({
                 📅
               </div>
               <div>
-                <p className="font-medium text-[var(--color-textPrimary)]">Google Calendar</p>
-                <p className="text-xs text-[var(--color-textMuted)]">Sync with Google Calendar</p>
+                <p className="font-medium text-[var(--color-textPrimary)]">Google Calendar .ics</p>
+                <p className="text-xs text-[var(--color-textMuted)]">Import exported calendar file</p>
               </div>
             </div>
-            <span className="text-sm text-[var(--color-primary)] font-medium">Connect</span>
+            <span className="text-sm text-[var(--color-primary)] font-medium">Import</span>
           </button>
 
           <button
@@ -739,11 +781,11 @@ export function SettingsSection({
                 <Upload className="w-5 h-5 text-[var(--color-secondary)]" />
               </div>
               <div>
-                <p className="font-medium text-[var(--color-textPrimary)]">bCourses/Canvas</p>
-                <p className="text-xs text-[var(--color-textMuted)]">Import class schedule</p>
+                <p className="font-medium text-[var(--color-textPrimary)]">bCourses/Canvas .ics</p>
+                <p className="text-xs text-[var(--color-textMuted)]">Import downloaded schedule</p>
               </div>
             </div>
-            <span className="text-sm text-[var(--color-secondary)] font-medium">Connect</span>
+            <span className="text-sm text-[var(--color-secondary)] font-medium">Import</span>
           </button>
           {calendarImportStatus && (
             <p className="text-sm text-[var(--color-textMuted)] px-1">{calendarImportStatus}</p>
@@ -758,14 +800,25 @@ export function SettingsSection({
           <h2 className="text-xl font-semibold text-[var(--color-textPrimary)]">Data & Privacy</h2>
         </div>
         <div className="space-y-3">
-          <button className="w-full px-4 py-3 bg-[var(--color-background)] rounded-xl hover:bg-[var(--color-accent)] transition-all text-left">
+          <button
+            onClick={handleExportData}
+            disabled={!onExportData}
+            className="w-full px-4 py-3 bg-[var(--color-background)] rounded-xl hover:bg-[var(--color-accent)] transition-all text-left disabled:opacity-50"
+          >
             <p className="font-medium text-[var(--color-textPrimary)]">Export Your Data</p>
             <p className="text-sm text-[var(--color-textMuted)] mt-1">Download all your preferences and history</p>
           </button>
-          <button className="w-full px-4 py-3 bg-red-50 rounded-xl hover:bg-red-100 transition-all text-left">
-            <p className="font-medium text-red-700">Clear All Data</p>
-            <p className="text-sm text-red-600 mt-1">Reset app to default settings</p>
+          <button
+            onClick={handleClearData}
+            disabled={!onClearData}
+            className="w-full px-4 py-3 bg-[var(--color-dangerSurface)] rounded-xl hover:opacity-90 transition-all text-left disabled:opacity-50"
+          >
+            <p className="font-medium text-[var(--color-danger)]">Clear All Data</p>
+            <p className="text-sm text-[var(--color-danger)] opacity-80 mt-1">Reset app to default settings</p>
           </button>
+          {dataActionStatus && (
+            <p className="px-1 text-sm text-[var(--color-textMuted)]">{dataActionStatus}</p>
+          )}
         </div>
       </div>
 
@@ -805,9 +858,9 @@ export function SettingsSection({
         <div className="flex items-center gap-4 text-sm text-[var(--color-textMuted)]">
           <span>Version 1.0.0</span>
           <span>•</span>
-          <a href="#" className="text-[var(--color-secondary)] hover:underline">Privacy Policy</a>
+          <span className="text-[var(--color-textMuted)]">Privacy Policy</span>
           <span>•</span>
-          <a href="#" className="text-[var(--color-secondary)] hover:underline">Terms</a>
+          <span className="text-[var(--color-textMuted)]">Terms</span>
         </div>
       </div>
 

@@ -31,15 +31,15 @@ export function EmojiPicker({ currentEmoji, onSelect, onClose }: EmojiPickerProp
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="p-4 border-b border-gray-200">
+        <div className="p-4 border-b border-[var(--color-border)]">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-blue-600" />
-              <h3 className="font-semibold text-gray-900">Pick an Emoji</h3>
+              <Sparkles className="w-5 h-5 text-[var(--color-primary)]" />
+              <h3 className="font-semibold text-[var(--color-textPrimary)]">Pick an Emoji</h3>
             </div>
             <button
               onClick={onClose}
-              className="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-500"
+              className="w-8 h-8 rounded-lg hover:bg-[var(--color-accent)] flex items-center justify-center text-[var(--color-textMuted)]"
             >
               ✕
             </button>
@@ -47,28 +47,28 @@ export function EmojiPicker({ currentEmoji, onSelect, onClose }: EmojiPickerProp
 
           {/* Search */}
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-textMuted)]" />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search emojis..."
-              className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full pl-9 pr-4 py-2 border border-[var(--color-border)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
             />
           </div>
         </div>
 
         {/* Categories */}
         {!search && (
-          <div className="flex gap-1 p-2 border-b border-gray-200 overflow-x-auto">
+          <div className="flex gap-1 p-2 border-b border-[var(--color-border)] overflow-x-auto">
             {Object.keys(EMOJI_CATEGORIES).map((category) => (
               <button
                 key={category}
                 onClick={() => setSelectedCategory(category as keyof typeof EMOJI_CATEGORIES)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
                   selectedCategory === category
-                    ? 'bg-blue-100 text-blue-700'
-                    : 'text-gray-600 hover:bg-gray-100'
+                    ? 'bg-[var(--color-accent)] text-[var(--color-primary)]'
+                    : 'text-[var(--color-textSecondary)] hover:bg-[var(--color-accent)]'
                 }`}
               >
                 {category}
@@ -87,8 +87,8 @@ export function EmojiPicker({ currentEmoji, onSelect, onClose }: EmojiPickerProp
                   onSelect(emoji);
                   onClose();
                 }}
-                className={`w-10 h-10 text-2xl rounded-lg hover:bg-gray-100 transition-colors ${
-                  emoji === currentEmoji ? 'bg-blue-100 ring-2 ring-blue-500' : ''
+                className={`w-10 h-10 text-2xl rounded-lg hover:bg-[var(--color-accent)] transition-colors ${
+                  emoji === currentEmoji ? 'bg-[var(--color-accent)] ring-2 ring-[var(--color-primary)]' : ''
                 }`}
               >
                 {emoji}
@@ -98,8 +98,8 @@ export function EmojiPicker({ currentEmoji, onSelect, onClose }: EmojiPickerProp
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-gray-200 bg-gray-50 rounded-b-2xl">
-          <p className="text-xs text-gray-600 text-center">
+        <div className="p-4 border-t border-[var(--color-border)] bg-[var(--color-background)] rounded-b-2xl">
+          <p className="text-xs text-[var(--color-textSecondary)] text-center">
             Tap an emoji to select it for your class
           </p>
         </div>
@@ -129,16 +129,16 @@ export function ClassEmojiCustomizer({
     <>
       <button
         onClick={() => setShowPicker(true)}
-        className={`flex items-center gap-3 rounded-xl hover:bg-gray-50 transition-colors group text-left ${compact ? 'p-1' : 'w-full p-3'}`}
+        className={`flex items-center gap-3 rounded-xl hover:bg-[var(--color-accent)] transition-colors group text-left ${compact ? 'p-1' : 'w-full p-3'}`}
       >
         <div className={compact ? 'text-2xl' : 'text-3xl'}>{currentEmoji}</div>
         {!compact && (
           <div className="flex-1">
-            <p className="font-semibold text-gray-900">{classCode}</p>
-            <p className="text-sm text-gray-600">{className}</p>
+            <p className="font-semibold text-[var(--color-textPrimary)]">{classCode}</p>
+            <p className="text-sm text-[var(--color-textSecondary)]">{className}</p>
           </div>
         )}
-        <Smile className="w-5 h-5 text-gray-400 group-hover:text-blue-600 transition-colors" />
+        <Smile className="w-5 h-5 text-[var(--color-textMuted)] group-hover:text-[var(--color-primary)] transition-colors" />
       </button>
 
       {showPicker && (

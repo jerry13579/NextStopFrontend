@@ -1,5 +1,5 @@
 import { Component, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
-import { Users, Clock, MapPin, Navigation2, TrendingUp, Search, X, Footprints, Bus } from 'lucide-react';
+import { AlertTriangle, Bus, Clock, CreditCard, Footprints, Heart, MapPin, Navigation2, Search, Users, X } from 'lucide-react';
 import { Navigation } from './components/Navigation';
 import { WelcomeSection } from './components/WelcomeSection';
 import { LocalEatsSection } from './components/LocalEatsSection';
@@ -8,8 +8,6 @@ import { DailySummary } from './components/DailySummary';
 import { SemesterWrapped } from './components/SemesterWrapped';
 import { BusMap } from './components/BusMap';
 import { StarredLocations, type StarredLocation } from './components/StarredLocations';
-import { BoardingReminders } from './components/BoardingReminders';
-import { CreditCard, AlertTriangle, Heart } from 'lucide-react';
 import { LoginPage } from './components/LoginPage';
 import {
   API_BASE_URL,
@@ -23,21 +21,28 @@ import {
   fetchServiceAlert,
   fetchPlanTrip,
   fetchSession,
+  fetchTrips,
+  fetchUserPreferences,
+  updateUserPreferences,
+  createTripLog,
+  exportUserData,
+  clearUserData,
+  type LocationSearchResult,
   importCalendar,
   saveManualCalendarEvents,
   deleteCalendarEvents,
   updateCalendarEvents,
-  LocationSearchResult,
   logout,
-  RouteVehicle,
+  type RouteVehicle,
   searchLocations
 } from './utils/api';
-import { loadTrips, calculateStreak, getTodaysTrips, Trip } from './utils/tripTracking';
-import { getThemeById, applyTheme, getCustomTheme, ColorTheme } from './utils/colorThemes';
+import { cacheTrips, loadTrips, calculateStreak, remoteTripToTrip, upsertTrip, type Trip } from './utils/tripTracking';
+import { getThemeById, applyTheme, getCustomTheme, deleteCustomTheme, type ColorTheme } from './utils/colorThemes';
 import {
   requestNotificationPermission,
   scheduleCommuteNotifications,
   scheduleLeaveByNotification,
+  scheduleTestNotification,
   setCommuteNotificationTapHandler,
 } from './utils/notifications';
 import nextStopLogo from '../imports/nextstop-logo-full.png';
@@ -115,16 +120,13 @@ interface HomeRouteMetrics {
   leaveInValue: string;
   leaveInDetail: string;
   leaveByValue: string;
-  leaveByDetail: string;
   locationValue: string;
-  locationDetail: string;
 }
 
 const ROUTE_OPTIONS_REFRESH_MS = 3 * 60 * 1000;
 const ROUTE_LOADING_WATCHDOG_MS = 25 * 1000;
 const ROUTE_REPLAN_DISTANCE_METERS = 75;
 const WALK_ROUTE_OPTION_ID = '__walk_route_option__';
-const HOME_ROUTE_CACHE_KEY = 'homeRouteCache';
 
 type HomeRouteStatus = 'loading' | 'live' | 'schedule';
 
@@ -143,14 +145,6 @@ interface CachedBusRoute {
   waitTimeMinutes: number;
   rideTimeMinutes: number;
   totalTripTimeMinutes: number;
-}
-
-interface HomeRouteCache {
-  location: string;
-  buses: CachedBusRoute[];
-  directWalkMinutes: number | null;
-  source: 'live' | 'schedule';
-  cachedAt: number;
 }
 
 function previewOptionsToCachedRoutes(preview: CalendarCommutePreview): CachedBusRoute[] {
@@ -192,22 +186,6 @@ function haversineDistanceM(lat1: number, lng1: number, lat2: number, lng2: numb
   return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function loadHomeRouteCache(location: string): HomeRouteCache | null {
-  try {
-    const raw = localStorage.getItem(HOME_ROUTE_CACHE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as HomeRouteCache;
-    return parsed.location === location ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-function saveHomeRouteCache(cache: HomeRouteCache): void {
-  try {
-    localStorage.setItem(HOME_ROUTE_CACHE_KEY, JSON.stringify(cache));
-  } catch {}
-}
 const AUTO_SNAP_DELAY_MS = 30_000;
 
 interface Recommendation {
@@ -240,7 +218,7 @@ class RouteErrorBoundary extends Component<RouteErrorBoundaryProps, RouteErrorBo
   render() {
     if (this.state.hasError) {
       return (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+        <div className="rounded-2xl border border-[var(--color-warningBorder)] bg-[var(--color-warningSurface)] p-4">
           <p className="text-sm font-semibold text-[var(--color-textPrimary)]">Map temporarily unavailable</p>
           <p className="mt-1 text-sm text-[var(--color-textSecondary)]">
             The route details are still below, but the live map hit an error and was safely skipped.
@@ -368,9 +346,7 @@ function buildHomeRouteMetrics(
     leaveInValue: bestBus ? `${bestBus.totalTripTimeMinutes} min` : '—',
     leaveInDetail: bestBus ? `Route ${bestBus.routeNumber}` : 'No bus available',
     leaveByValue: formatClockTime(leaveByTime) || '—',
-    leaveByDetail: bestTravelTime === null ? 'Add a class location to calculate' : `${nextClass.code} · ${bestTravelTime} min trip`,
     locationValue: locationPrimary,
-    locationDetail: `${nextClass.code} · ${formatClockTime(nextClass.startTime) || 'soon'}`,
   };
 }
 
@@ -384,18 +360,18 @@ function boardingLikelihood(capacity?: number | null) {
   if (capacity >= 85) {
     return {
       label: 'Boarding unlikely',
-      tone: 'text-red-700 bg-red-100',
+      tone: 'text-[var(--color-danger)] bg-[var(--color-dangerSurface)]',
     };
   }
   if (capacity >= 60) {
     return {
       label: 'Limited space',
-      tone: 'text-amber-700 bg-amber-100',
+      tone: 'text-[var(--color-warning)] bg-[var(--color-warningSurface)]',
     };
   }
   return {
     label: 'Boarding likely',
-    tone: 'text-green-700 bg-green-100',
+    tone: 'text-[var(--color-success)] bg-[var(--color-successSurface)]',
   };
 }
 
@@ -640,7 +616,7 @@ function getRecommendation(bus: BusRoute, nextClass: Class | null, currentTime: 
       return {
         action: 'alternate',
         message: `Bus is at ${capacity}% capacity. Consider the next bus or alternate route.`,
-        color: 'bg-red-50 border-red-200',
+        color: 'bg-[var(--color-dangerSurface)] border-[var(--color-dangerBorder)]',
         willBeOnTime: true,
         arrivalTime: 0
       };
@@ -648,7 +624,7 @@ function getRecommendation(bus: BusRoute, nextClass: Class | null, currentTime: 
     return {
       action: 'wait',
       message: 'Bus has available space. Safe to board.',
-      color: 'bg-green-50 border-green-200',
+      color: 'bg-[var(--color-successSurface)] border-[var(--color-successBorder)]',
       willBeOnTime: true,
       arrivalTime: 0
     };
@@ -672,7 +648,7 @@ function getRecommendation(bus: BusRoute, nextClass: Class | null, currentTime: 
       return {
         action: 'walk-to-class',
         message: `Bus is at ${capacity}% capacity. Walk to ${nextClass.buildingCode} now (${walkTime} min) to arrive on time.`,
-        color: 'bg-red-50 border-red-200',
+        color: 'bg-[var(--color-dangerSurface)] border-[var(--color-dangerBorder)]',
         willBeOnTime: true,
         arrivalTime: walkArrivalTime
       };
@@ -680,7 +656,7 @@ function getRecommendation(bus: BusRoute, nextClass: Class | null, currentTime: 
     return {
       action: 'alternate',
       message: `Bus is at ${capacity}% capacity. Wait for next bus or walk immediately.`,
-      color: 'bg-red-50 border-red-200',
+      color: 'bg-[var(--color-dangerSurface)] border-[var(--color-dangerBorder)]',
       willBeOnTime: false,
       arrivalTime: busArrivalTime
     };
@@ -692,7 +668,7 @@ function getRecommendation(bus: BusRoute, nextClass: Class | null, currentTime: 
       return {
         action: 'walk-to-class',
         message: `Walk to ${nextClass.buildingCode} now (${walkTime} min). Bus won't get you there on time.`,
-        color: 'bg-red-50 border-red-200',
+        color: 'bg-[var(--color-dangerSurface)] border-[var(--color-dangerBorder)]',
         willBeOnTime: true,
         arrivalTime: walkArrivalTime
       };
@@ -700,7 +676,7 @@ function getRecommendation(bus: BusRoute, nextClass: Class | null, currentTime: 
     return {
       action: 'walk-to-class',
       message: `You'll be late either way. Walking (${walkTime} min) is ${busArrivalTime - walkArrivalTime} min faster.`,
-      color: 'bg-red-50 border-red-200',
+      color: 'bg-[var(--color-dangerSurface)] border-[var(--color-dangerBorder)]',
       willBeOnTime: false,
       arrivalTime: walkArrivalTime
     };
@@ -714,7 +690,7 @@ function getRecommendation(bus: BusRoute, nextClass: Class | null, currentTime: 
         message: hasCapacity && capacity >= 80
           ? `Bus is ${capacity}% full. Walking gets you to ${nextClass.buildingCode} ${busArrivalTime - walkArrivalTime} min earlier.`
           : `Bus is delayed ${delay} min. Walking gets you to ${nextClass.buildingCode} ${busArrivalTime - walkArrivalTime} min earlier.`,
-        color: 'bg-yellow-50 border-yellow-200',
+        color: 'bg-[var(--color-warningSurface)] border-[var(--color-warningBorder)]',
         willBeOnTime: true,
         arrivalTime: walkArrivalTime
       };
@@ -724,7 +700,7 @@ function getRecommendation(bus: BusRoute, nextClass: Class | null, currentTime: 
       message: hasCapacity && capacity >= 80
         ? `Bus is ${capacity}% full but gets you to ${nextClass.buildingCode} on time. Board quickly.`
         : `Bus is ${delay} min delayed but still gets you to ${nextClass.buildingCode} on time.`,
-      color: 'bg-yellow-50 border-yellow-200',
+      color: 'bg-[var(--color-warningSurface)] border-[var(--color-warningBorder)]',
       willBeOnTime: true,
       arrivalTime: busArrivalTime
     };
@@ -737,7 +713,7 @@ function getRecommendation(bus: BusRoute, nextClass: Class | null, currentTime: 
     message: delay > 0
       ? `Bus is ${delay} min delayed but has space. You'll arrive ${bufferTime} min early to ${nextClass.buildingCode}.`
       : `Bus is on time with space. You'll arrive ${bufferTime} min early to ${nextClass.buildingCode}.`,
-    color: 'bg-green-50 border-green-200',
+    color: 'bg-[var(--color-successSurface)] border-[var(--color-successBorder)]',
     willBeOnTime: true,
     arrivalTime: busArrivalTime
   };
@@ -753,7 +729,7 @@ function getMainRecommendation(buses: BusRoute[], nextClass: Class | null, curre
     return {
       title: 'Route data loading',
       message: 'We are still syncing live routes. Check back in a moment or use the route cards below when they appear.',
-      color: 'bg-blue-50 border-blue-200',
+      color: 'bg-[var(--color-infoSurface)] border-[var(--color-infoBorder)]',
       icon: '🗺️'
     };
   }
@@ -762,7 +738,7 @@ function getMainRecommendation(buses: BusRoute[], nextClass: Class | null, curre
     return {
       title: 'Ready to go',
       message: 'All buses are available. Choose any route that suits your destination.',
-      color: 'bg-blue-50 border-blue-200',
+      color: 'bg-[var(--color-infoSurface)] border-[var(--color-infoBorder)]',
       icon: '🚌'
     };
   }
@@ -799,14 +775,14 @@ function getMainRecommendation(buses: BusRoute[], nextClass: Class | null, curre
       return {
         title: 'Walk to class now',
         message: `All buses are at capacity. Walk to ${nextClass.buildingCode} (${walkingOption.bus.walkTime} min) to arrive on time.`,
-        color: 'bg-red-50 border-red-200',
+        color: 'bg-[var(--color-dangerSurface)] border-[var(--color-dangerBorder)]',
         icon: '🚶'
       };
     }
     return {
       title: 'Wait for next buses',
       message: `Current buses are at capacity. Wait ${Math.min(...buses.map(b => b.eta)) + 15} min for the next available bus.`,
-      color: 'bg-yellow-50 border-yellow-200',
+      color: 'bg-[var(--color-warningSurface)] border-[var(--color-warningBorder)]',
       icon: '⏰'
     };
   }
@@ -818,14 +794,14 @@ function getMainRecommendation(buses: BusRoute[], nextClass: Class | null, curre
       return {
         title: 'Walk immediately',
         message: `You'll be ${minutesUntilClass - fastestOption.rec.arrivalTime} min late. Walking is fastest (${fastestOption.bus.walkTime} min).`,
-        color: 'bg-red-50 border-red-200',
+        color: 'bg-[var(--color-dangerSurface)] border-[var(--color-dangerBorder)]',
         icon: '🚶'
       };
     }
     return {
       title: 'Take the soonest bus',
       message: `You'll be ${minutesUntilClass - fastestOption.rec.arrivalTime} min late. Board bus ${fastestOption.bus.routeNumber} (${fastestOption.bus.eta} min).`,
-      color: 'bg-red-50 border-red-200',
+      color: 'bg-[var(--color-dangerSurface)] border-[var(--color-dangerBorder)]',
       icon: '⚠️'
     };
   }
@@ -841,7 +817,7 @@ function getMainRecommendation(buses: BusRoute[], nextClass: Class | null, curre
       return {
         title: 'Consider walking',
         message: `Walking to ${nextClass.buildingCode} (${walkingOption.bus.walkTime} min) avoids delays and capacity issues.`,
-        color: 'bg-yellow-50 border-yellow-200',
+        color: 'bg-[var(--color-warningSurface)] border-[var(--color-warningBorder)]',
         icon: '🚶'
       };
     }
@@ -851,14 +827,14 @@ function getMainRecommendation(buses: BusRoute[], nextClass: Class | null, curre
       return {
         title: `Take bus ${fastestOnTime.bus.routeNumber}`,
         message: `Arrives in ${fastestOnTime.bus.eta} min. You'll get to ${nextClass.buildingCode} ${bufferTime} min early${fastestOnTime.bus.capacity === null ? '.' : ` with ${45 - Math.round(45 * fastestOnTime.bus.capacity / 100)} seats available.`}`,
-        color: 'bg-green-50 border-green-200',
+        color: 'bg-[var(--color-successSurface)] border-[var(--color-successBorder)]',
         icon: '✅'
       };
     } else {
       return {
         title: `Board bus ${fastestOnTime.bus.routeNumber} now`,
         message: `Arrives in ${fastestOnTime.bus.eta} min. Board quickly to reach ${nextClass.buildingCode} on time (${bufferTime} min buffer).`,
-        color: 'bg-yellow-50 border-yellow-200',
+        color: 'bg-[var(--color-warningSurface)] border-[var(--color-warningBorder)]',
         icon: '⏱️'
       };
     }
@@ -868,7 +844,7 @@ function getMainRecommendation(buses: BusRoute[], nextClass: Class | null, curre
   return {
     title: 'Check all options below',
     message: `Review bus recommendations for ${nextClass.buildingCode}. Multiple routes available.`,
-    color: 'bg-blue-50 border-blue-200',
+    color: 'bg-[var(--color-infoSurface)] border-[var(--color-infoBorder)]',
     icon: '📋'
   };
 }
@@ -925,139 +901,6 @@ function getAiAnalysisMessage(capacity: number, busId: string): string {
   return messages[((h >>> 0) % messages.length)];
 }
 
-function BusCard({ bus, nextClass, currentTime, onShowReminders }: {
-  bus: BusRoute;
-  nextClass: Class | null;
-  currentTime: Date;
-  onShowReminders: () => void;
-}) {
-  const [aiExpanded, setAiExpanded] = useState(false);
-  const recommendation = getRecommendation(bus, nextClass, currentTime);
-
-  const noise = useMemo(() => Math.round(Math.random() * 10 - 5), [bus.id]);
-  const displayCapacity = bus.capacity !== null ? Math.max(0, Math.min(100, bus.capacity + noise)) : null;
-
-  const hasCapacity = displayCapacity !== null;
-  const totalSeats = 45;
-  const remainingSeats = hasCapacity ? Math.round(totalSeats * (1 - displayCapacity / 100)) : null;
-
-  // Calculate total arrival time
-  const totalArrivalTime = bus.eta + bus.destinationWalkTime;
-
-  const getCapacityColor = (capacity: number | null) => {
-    if (capacity === null) return 'text-[var(--color-textMuted)]';
-    if (capacity >= 95) return 'text-red-600';
-    if (capacity >= 80) return 'text-yellow-600';
-    return 'text-green-600';
-  };
-
-  const getDelayColor = (delay: number) => {
-    if (delay > 10) return 'text-red-600';
-    if (delay > 0) return 'text-yellow-600';
-    return 'text-green-600';
-  };
-
-  return (
-    <div className="bg-white rounded-2xl p-6 border border-[var(--color-border)] shadow-sm hover:shadow-md transition-shadow">
-      {/* Header */}
-      <div className="flex items-start justify-between mb-4">
-        <div className="flex-1">
-          <div className="flex items-center gap-2">
-            <span className="text-3xl font-semibold text-[var(--color-textPrimary)]">{bus.routeNumber}</span>
-            <span className={`px-2 py-0.5 rounded-full text-xs ${getDelayColor(bus.delay)} ${
-              bus.delay > 10 ? 'bg-red-100' : bus.delay > 0 ? 'bg-yellow-100' : 'bg-green-100'
-            }`}>
-              {bus.delay > 0 ? `+${bus.delay} min` : 'On time'}
-            </span>
-            <span className="px-2 py-0.5 rounded-full text-xs bg-[var(--color-accent)] text-[var(--color-textSecondary)] font-medium">
-              {totalArrivalTime} min total
-            </span>
-          </div>
-          <p className="text-[var(--color-textMuted)] mt-1">{bus.routeName}</p>
-        </div>
-        <div className={`text-right px-3 py-2 rounded-xl ${
-          displayCapacity === null ? 'bg-[var(--color-accent)]' : displayCapacity >= 95 ? 'bg-red-100' : displayCapacity >= 80 ? 'bg-yellow-100' : 'bg-green-100'
-        }`}>
-          <div className="flex items-center gap-1.5 justify-end">
-            <Users className={`w-4 h-4 ${getCapacityColor(displayCapacity)}`} />
-            <span className={`text-xl font-semibold ${getCapacityColor(displayCapacity)}`}>
-              {displayCapacity === null ? '--' : `${displayCapacity}%`}
-            </span>
-          </div>
-          <p className="text-xs text-[var(--color-textMuted)] mt-0.5">
-            {displayCapacity === null ? 'capacity unknown' : 'capacity'}
-          </p>
-          <p className={`text-sm font-medium mt-1 ${getCapacityColor(displayCapacity)}`}>
-            {remainingSeats === null ? 'live telemetry off' : `${remainingSeats} seats left`}
-          </p>
-        </div>
-      </div>
-
-      {/* Current Location */}
-      <div className="flex items-start gap-3 mb-4 pb-4 border-b border-[var(--color-border)]">
-        <MapPin className="w-5 h-5 text-[var(--color-secondary)] mt-0.5 flex-shrink-0" />
-        <div className="flex-1">
-          <p className="text-sm text-[var(--color-textMuted)]">Currently at</p>
-          <p className="text-[var(--color-textPrimary)] font-medium">{bus.currentStop}</p>
-          <div className="flex items-center gap-2 mt-2">
-            <Navigation2 className="w-4 h-4 text-[var(--color-textMuted)]" />
-            <p className="text-sm text-[var(--color-textMuted)]">Next: {bus.nextStop}</p>
-          </div>
-        </div>
-        <div className="text-right">
-          <div className="flex items-center gap-1 justify-end">
-            <Clock className="w-4 h-4 text-[var(--color-textMuted)]" />
-            <span className="text-2xl font-semibold text-[var(--color-textPrimary)]">{bus.eta}</span>
-            <span className="text-sm text-[var(--color-textMuted)] mt-1">min</span>
-          </div>
-        </div>
-      </div>
-
-      {/* AI Analysis bubble — replaces the recommendation card */}
-      <div className="flex justify-end">
-        {aiExpanded ? (
-          <div className="w-full rounded-xl bg-[var(--color-accent)] border border-[var(--color-border)] p-3">
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex items-start gap-2">
-                <span className="text-xs font-semibold text-[var(--color-textSecondary)] shrink-0 mt-0.5">✨</span>
-                <p className="text-sm text-[var(--color-textMuted)]">
-                  {displayCapacity !== null ? getAiAnalysisMessage(displayCapacity) : recommendation.message}
-                </p>
-              </div>
-              <button
-                onClick={() => setAiExpanded(false)}
-                className="shrink-0 text-[var(--color-textMuted)] hover:text-[var(--color-textPrimary)] transition-colors"
-                aria-label="Close"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        ) : (
-          <button
-            onClick={() => setAiExpanded(true)}
-            className="flex items-center gap-1.5 rounded-full bg-[var(--color-accent)] border border-[var(--color-border)] px-3 py-1.5 text-xs font-medium text-[var(--color-textSecondary)] hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] transition-colors"
-          >
-            <span>✨</span>
-            AI Analysis
-          </button>
-        )}
-      </div>
-
-      {/* Boarding Reminders Button */}
-      {bus.eta <= 5 && (
-        <button
-          onClick={onShowReminders}
-          className="w-full mt-3 bg-gradient-to-br from-[var(--color-primary)] to-[var(--color-secondary)] text-white font-semibold py-3 px-4 rounded-xl hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
-        >
-          <span>🚌</span>
-          <span>View Boarding Reminders</span>
-        </button>
-      )}
-    </div>
-  );
-}
-
 function RecentTripsSection({ trips }: { trips: Trip[] }) {
   const recentTrips = [...trips]
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
@@ -1097,7 +940,9 @@ function RecentTripsSection({ trips }: { trips: Trip[] }) {
                 </div>
               </div>
               <span className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold ${
-                trip.wasOnTime ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
+                trip.wasOnTime
+                  ? 'bg-[var(--color-successSurface)] text-[var(--color-success)]'
+                  : 'bg-[var(--color-warningSurface)] text-[var(--color-warning)]'
               }`}>
                 {trip.wasOnTime ? 'On time' : 'Late'}
               </span>
@@ -1111,11 +956,11 @@ function RecentTripsSection({ trips }: { trips: Trip[] }) {
 
 export default function App() {
   const mainContentRef = useRef<HTMLElement | null>(null);
-  const navigationCarouselRef = useRef<HTMLDivElement | null>(null);
   const navigationPanelRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const routeOptionsRef = useRef<HTMLDivElement | null>(null);
   const routeOptionRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const navigationSnapTimeoutRef = useRef<number | null>(null);
+  const loggedTripKeysRef = useRef<Set<string>>(new Set());
   const lastRoutePlanAtRef = useRef(0);
   const lastRoutePlanKeyRef = useRef<string | null>(null);
   const forceNextRoutePlanRef = useRef(false);
@@ -1136,11 +981,8 @@ export default function App() {
   const [trips, setTrips] = useState<Trip[]>([]);
   const [showDailySummary, setShowDailySummary] = useState(false);
   const [showSemesterWrapped, setShowSemesterWrapped] = useState(false);
-  const [showNightModePreview, setShowNightModePreview] = useState(false);
 
   // Boarding reminders state
-  const [showBoardingReminders, setShowBoardingReminders] = useState(false);
-  const [selectedBusForReminders, setSelectedBusForReminders] = useState<string | null>(null);
   const [boardingRemindersExpanded, setBoardingRemindersExpanded] = useState(false);
   const [routeError, setRouteError] = useState<string | null>(null);
   const [allBuses, setAllBuses] = useState<BusRoute[]>([]);
@@ -1174,11 +1016,40 @@ export default function App() {
   const [notificationsEnabled, setNotificationsEnabled] = useState(() => {
     return loadJsonValue('smartNotificationsEnabled', true); // Default to enabled
   });
+  const [capacityAlertsEnabled, setCapacityAlertsEnabled] = useState(() => loadJsonValue('capacityAlertsEnabled', true));
+  const [delayNotificationsEnabled, setDelayNotificationsEnabled] = useState(() => loadJsonValue('delayNotificationsEnabled', true));
 
   // Save notification preference
   useEffect(() => {
     localStorage.setItem('smartNotificationsEnabled', JSON.stringify(notificationsEnabled));
   }, [notificationsEnabled]);
+
+  useEffect(() => {
+    localStorage.setItem('capacityAlertsEnabled', JSON.stringify(capacityAlertsEnabled));
+  }, [capacityAlertsEnabled]);
+
+  useEffect(() => {
+    localStorage.setItem('delayNotificationsEnabled', JSON.stringify(delayNotificationsEnabled));
+  }, [delayNotificationsEnabled]);
+
+  useEffect(() => {
+    if (!sessionToken) return;
+    let cancelled = false;
+    fetchUserPreferences(sessionToken)
+      .then((preferences) => {
+        if (cancelled) return;
+        setNotificationsEnabled(preferences.smart_departure_alerts);
+        setCapacityAlertsEnabled(preferences.capacity_alerts);
+        setDelayNotificationsEnabled(preferences.delay_notifications);
+        if (preferences.theme_id) {
+          setSelectedTheme(preferences.theme_id);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionToken]);
 
   // Keep a stable ref so the tap handler always has fresh closures without re-registering.
   const notificationTapRef = useRef<(destination: string) => void>(() => {});
@@ -1278,6 +1149,9 @@ export default function App() {
   const handleCustomThemeUpdate = (theme: ColorTheme) => {
     setCustomTheme(theme);
     setSelectedTheme('custom');
+    if (sessionToken) {
+      updateUserPreferences(sessionToken, { theme_id: 'custom' }).catch(() => {});
+    }
   };
 
   const handleDeleteCustomTheme = () => {
@@ -1285,8 +1159,30 @@ export default function App() {
     // Switch to default theme if custom was active
     if (selectedTheme === 'custom') {
       setSelectedTheme('default');
+      if (sessionToken) {
+        updateUserPreferences(sessionToken, { theme_id: 'default' }).catch(() => {});
+      }
     }
-    localStorage.removeItem('customTheme');
+    deleteCustomTheme();
+  };
+
+  const handleThemeChange = (themeId: string) => {
+    setSelectedTheme(themeId);
+    if (sessionToken) {
+      updateUserPreferences(sessionToken, { theme_id: themeId }).catch(() => {});
+    }
+  };
+
+  const handleNotificationPreferenceChange = (
+    key: 'smart_departure_alerts' | 'capacity_alerts' | 'delay_notifications',
+    enabled: boolean,
+  ) => {
+    if (key === 'smart_departure_alerts') setNotificationsEnabled(enabled);
+    if (key === 'capacity_alerts') setCapacityAlertsEnabled(enabled);
+    if (key === 'delay_notifications') setDelayNotificationsEnabled(enabled);
+    if (sessionToken) {
+      updateUserPreferences(sessionToken, { [key]: enabled }).catch(() => {});
+    }
   };
 
   const handleLogin = (email: string, token: string) => {
@@ -1313,11 +1209,60 @@ export default function App() {
     localStorage.removeItem('sessionToken');
   };
 
-  // Initialize trip tracking
+  const handleExportData = async () => {
+    if (!sessionToken) {
+      throw new Error('You must be logged in to export data.');
+    }
+    const blob = await exportUserData(sessionToken);
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `nextstop-export-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const handleClearData = async () => {
+    if (!sessionToken) {
+      throw new Error('You must be logged in to clear data.');
+    }
+    await clearUserData(sessionToken);
+    setTrips([]);
+    cacheTrips([]);
+    setStarredLocations([]);
+    localStorage.removeItem('starredLocations');
+    setHomeAddress(null);
+    setStudySpot(null);
+    setNotificationsEnabled(true);
+    setCapacityAlertsEnabled(true);
+    setDelayNotificationsEnabled(true);
+  };
+
+  // Initialize trip tracking from the local cache, then refresh from backend when available.
   useEffect(() => {
     const loadedTrips = loadTrips();
     setTrips(loadedTrips);
   }, []);
+
+  useEffect(() => {
+    if (!sessionToken) return;
+    let cancelled = false;
+    fetchTrips(sessionToken)
+      .then((remoteTrips) => {
+        if (cancelled) return;
+        const parsedTrips = remoteTrips
+          .map(remoteTripToTrip)
+          .filter((trip): trip is Trip => Boolean(trip));
+        setTrips(parsedTrips);
+        cacheTrips(parsedTrips);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionToken]);
 
   // Check if it's time to show daily summary (after 8pm or after last class)
   useEffect(() => {
@@ -1328,16 +1273,16 @@ export default function App() {
       
       // Show after 8pm and haven't shown today yet
       if (hour >= 20 && hasShownToday !== today) {
-        const todaysTrips = getTodaysTrips();
-        if (todaysTrips.length > 0) {
-          setTimeout(() => setShowDailySummary(true), 2000); // Delay for smooth UX
-          localStorage.setItem('dailySummaryShown', today);
-        }
+          const todaysTrips = trips.filter((trip) => isSameLocalDay(trip.date, currentTime));
+          if (todaysTrips.length > 0) {
+            setTimeout(() => setShowDailySummary(true), 2000); // Delay for smooth UX
+            localStorage.setItem('dailySummaryShown', today);
+          }
       }
     };
 
     checkDailySummary();
-  }, [currentTime]);
+  }, [currentTime, trips]);
 
   // Starred locations
   const [starredLocations, setStarredLocations] = useState<StarredLocation[]>([]);
@@ -1432,32 +1377,6 @@ export default function App() {
 
       return updated;
     });
-  };
-
-  const updateClasses = (classIds: string[], updates: Partial<Class>) => {
-    const idSet = new Set(classIds);
-    setSchedule(prev => prev.map(cls => (
-      idSet.has(cls.id)
-        ? {
-          ...cls,
-          ...updates,
-          buildingCode: updates.buildingCode || (updates.location ? inferBuildingCode(updates.location) : cls.buildingCode),
-        }
-        : cls
-    )));
-  };
-
-  const saveClasses = (classIds: string[]) => {
-    if (!sessionToken) return;
-    const idSet = new Set(classIds);
-    const current = schedule.find(cls => idSet.has(cls.id));
-    if (!current) return;
-    const externalIds = classIds.map(id => id.startsWith('calendar_') ? id.slice('calendar_'.length) : id);
-    updateCalendarEvents([{
-      external_ids: externalIds,
-      title: current.code,
-      location: current.location || '',
-    }], sessionToken).catch(() => {});
   };
 
   const replaceClass = (groupIds: string[], data: { code: string; name: string; sections: Array<{ location: string; days: number[]; startTime: string; endTime: string }> }) => {
@@ -1581,13 +1500,6 @@ export default function App() {
     setHomeScreenDirectWalkMinutes(directWalkMinutes);
     setHomeRouteStatus(preview.source === 'schedule' ? 'schedule' : null);
     setHomeRouteBestBus(cachedRoutes[0] ? { routeNumber: cachedRoutes[0].routeNumber, capacity: null, delay: 0 } : null);
-    saveHomeRouteCache({
-      location: nextEntry.location,
-      buses: cachedRoutes,
-      directWalkMinutes,
-      source: 'schedule',
-      cachedAt: Date.now(),
-    });
 
     if (previews?.length) {
       scheduleCommuteNotifications(previews, classEntries).catch(() => {});
@@ -1671,6 +1583,16 @@ export default function App() {
   // Get next class
   const nextClass = schedule.find(cls => cls.startTime > currentTime) || null;
   const nextClassToday = schedule.find((cls) => cls.startTime > currentTime && isSameLocalDay(cls.startTime, currentTime)) || null;
+  const activeRouteClass = useMemo(() => {
+    if (!routeDestination) return null;
+    const normalizedRoute = routeDestination.trim().toLowerCase();
+    return schedule.find((cls) => {
+      const normalizedLocation = cls.location.trim().toLowerCase();
+      return normalizedLocation === normalizedRoute ||
+        normalizedLocation.includes(normalizedRoute) ||
+        normalizedRoute.includes(normalizedLocation);
+    }) || null;
+  }, [routeDestination, schedule]);
 
   // Home widget: live route planning for today's next class, same logic as the routes tab.
   useEffect(() => {
@@ -1690,6 +1612,7 @@ export default function App() {
 
     async function fetchHomeRoute() {
       setHomeRouteLoading(true);
+      setHomeRouteStatus('loading');
       try {
         const plan = await fetchPlanTrip(
           'Current location',
@@ -1697,6 +1620,7 @@ export default function App() {
           routePlanningLocation,
           null,
           controller.signal,
+          { mode: 'bus', includeWalk: false },
         );
         if (ignore) return;
 
@@ -1725,6 +1649,7 @@ export default function App() {
       } catch {
         if (ignore) return;
         setHomeRouteLoading(false);
+        setHomeRouteStatus(null);
         timerId = window.setTimeout(fetchHomeRoute, ROUTE_OPTIONS_REFRESH_MS);
       }
     }
@@ -1760,7 +1685,7 @@ export default function App() {
       return;
     }
 
-    const currentRoutePlanKey = routePlanKey(destination, destinationPosition);
+    const currentRoutePlanKey = routePlanKey(destination, routePlanningLocation);
     const now = Date.now();
     const isSameRoutePlan = lastRoutePlanKeyRef.current === currentRoutePlanKey;
     const elapsedSinceLastPlan = now - lastRoutePlanAtRef.current;
@@ -1799,7 +1724,7 @@ export default function App() {
           return filteredBuses[0]?.id ?? (directWalkDuration !== null ? WALK_ROUTE_OPTION_ID : null);
         });
         lastRoutePlanAtRef.current = Date.now();
-        lastRoutePlanKeyRef.current = routePlanKey(destination, plan.map_data.destination_marker);
+        lastRoutePlanKeyRef.current = currentRoutePlanKey;
         setRouteError(null);
         setBusStopPosition(plan.map_data.origin_stop_marker ?? plan.map_data.destination_marker);
         setDestinationPosition((current) =>
@@ -1841,13 +1766,6 @@ export default function App() {
     if (!isRouteLoading) return;
 
     const watchedDestination = routeDestination || 'selected destination';
-    console.warn('[Routes] Route loading watchdog started', {
-      destination: watchedDestination,
-      timeoutMs: ROUTE_LOADING_WATCHDOG_MS,
-      hasRoutePlanningLocation: Boolean(routePlanningLocation),
-      hasDestinationPosition: Boolean(destinationPosition),
-    });
-
     routeLoadingWatchdogRef.current = window.setTimeout(() => {
       console.error('[Routes] Route loading watchdog fired', {
         destination: watchedDestination,
@@ -1943,11 +1861,7 @@ export default function App() {
   const isNearStudySpot = studySpot !== null && deviceLocation !== null &&
     haversineDistanceM(deviceLocation.lat, deviceLocation.lng, studySpot.lat, studySpot.lng) < NEAR_THRESHOLD_METERS;
 
-  const getRelevantBuses = () => {
-    return allBuses;
-  };
-
-  const buses = getRelevantBuses();
+  const buses = allBuses;
   const visibleBuses = useMemo<BusRoute[]>(() =>
     allBuses
       .filter((bus: BusRoute) => {
@@ -1966,7 +1880,7 @@ export default function App() {
         (a.totalTripTimeMinutes - b.totalTripTimeMinutes) ||
         (a.eta - b.eta)
       )),
-    [allBuses, directWalkTimeMinutes, destinationPosition],
+    [allBuses, directWalkTimeMinutes, destinationPosition, userPosition],
   );
   const selectedBus = selectedBusId === WALK_ROUTE_OPTION_ID
     ? null
@@ -2030,30 +1944,8 @@ export default function App() {
       setRouteVehicles([]);
       return;
     }
-
-    let cancelled = false;
-    async function syncRouteVehicles() {
-      try {
-        const vehicles = await fetchRouteVehicles(
-          selectedBus.apiBus?.route_short_name || selectedBus.routeNumber,
-          typeof selectedBus.apiBus?.direction_id === 'number' ? selectedBus.apiBus.direction_id : undefined,
-          selectedBus.apiBus?.boarding_stop?.stop_id || undefined,
-        );
-        if (cancelled) return;
-        setRouteVehicles(vehicles);
-      } catch {
-        if (cancelled) return;
-        setRouteVehicles([]);
-      }
-    }
-
-    syncRouteVehicles();
-    const interval = setInterval(syncRouteVehicles, 15000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [selectedBus?.apiBus?.boarding_stop?.stop_id, selectedBus?.apiBus?.direction_id, selectedBus?.apiBus?.route_short_name, selectedBus?.routeNumber]);
+    setRouteVehicles(routeVehiclesByKey[vehicleCacheKey(selectedBus)] || []);
+  }, [routeVehiclesByKey, selectedBus]);
 
   useEffect(() => {
     if (visibleBuses.length === 0) {
@@ -2100,6 +1992,49 @@ export default function App() {
   }, [destinationPosition, isInAppNavigating, routeVehicles, selectedBus, userPosition]);
 
   useEffect(() => {
+    if (!sessionToken || !isInAppNavigating || !selectedBus || !destinationPosition || !deviceLocation || !activeRouteClass) return;
+    if (distanceMeters(userPosition, destinationPosition) > 45) return;
+
+    const idempotencyKey = `${activeRouteClass.id}:${selectedBus.id}:${activeRouteClass.startTime.toISOString()}`;
+    if (loggedTripKeysRef.current.has(idempotencyKey)) return;
+    loggedTripKeysRef.current.add(idempotencyKey);
+
+    const walkDistanceKm = (selectedBus.walkToStop?.distance_km ?? 0) + (selectedBus.walkFromStop?.distance_km ?? 0);
+    const rideDistanceKm = typeof selectedBus.apiBus?.ride_distance_meters === 'number'
+      ? selectedBus.apiBus.ride_distance_meters / 1000
+      : selectedBus.distance;
+    const distanceKm = Math.max(walkDistanceKm + rideDistanceKm, 0);
+    const estimatedSteps = Math.round(walkDistanceKm * 1312);
+    const estimatedCalories = Math.round(walkDistanceKm * 62);
+
+    createTripLog(sessionToken, {
+      idempotency_key: idempotencyKey,
+      class_id: activeRouteClass.id,
+      class_code: activeRouteClass.code,
+      class_name: activeRouteClass.name,
+      scheduled_time: activeRouteClass.startTime.toISOString(),
+      actual_arrival_time: new Date().toISOString(),
+      mode: 'bus',
+      bus_line: selectedBus.routeNumber,
+      distance_km: distanceKm,
+      steps: estimatedSteps,
+      calories_burned: estimatedCalories,
+    })
+      .then((remoteTrip) => {
+        const parsedTrip = remoteTripToTrip(remoteTrip);
+        if (!parsedTrip) return;
+        setTrips((currentTrips) => {
+          const nextTrips = upsertTrip(currentTrips, parsedTrip);
+          cacheTrips(nextTrips);
+          return nextTrips;
+        });
+      })
+      .catch(() => {
+        loggedTripKeysRef.current.delete(idempotencyKey);
+      });
+  }, [activeRouteClass, destinationPosition, deviceLocation, isInAppNavigating, selectedBus, sessionToken, userPosition]);
+
+  useEffect(() => {
     if (visibleBuses.length === 0) {
       setSelectedBusId(directWalkTimeMinutes !== null ? WALK_ROUTE_OPTION_ID : null);
       return;
@@ -2129,19 +2064,6 @@ export default function App() {
       }
     };
   }, [activeNavigationStepId, isInAppNavigating]);
-
-  useEffect(() => {
-    if (!selectedBus) return;
-    console.log('[Navigation Debug]', {
-      current_navigation_step: currentNavigationStep,
-      displayed_headsign: selectedBus.headsign ?? null,
-      bus_arrival_times: routeVehicles.map((vehicle) => ({
-        vehicle_id: vehicle.vehicle_id,
-        arrival_minutes: vehicle.arrival_minutes ?? null,
-        headsign: vehicle.headsign ?? null,
-      })),
-    });
-  }, [currentNavigationStep, routeVehicles, selectedBus]);
 
   useEffect(() => {
     if (isInAppNavigating) return;
@@ -2194,9 +2116,7 @@ export default function App() {
     };
   }, [isInAppNavigating, selectedBusId, visibleBuses]);
 
-  const onTimeRate = trips.length > 0
-    ? Math.round((trips.filter((trip) => trip.wasOnTime).length / trips.length) * 100)
-    : 0;
+  const streakCount = calculateStreak(trips);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -2233,14 +2153,11 @@ export default function App() {
             nextClass={nextClassToday}
             schedule={schedule}
             trips={trips}
-            showDailySummaryPopup={showNightModePreview ? true : showDailySummary}
-            onCloseDailySummary={() => {
-              setShowDailySummary(false);
-              setShowNightModePreview(false);
-            }}
+            showDailySummaryPopup={false}
+            onCloseDailySummary={() => {}}
             onNavigateToRoutes={openRoutesForNextClass}
             onNavigateToCalendarImport={() => setActiveSection('settings')}
-            routeAlert={nextClassToday && routeStats && !routeStats.message.toLowerCase().includes('early') && routeStats.color.includes('red') ? routeStats.message : null}
+            routeAlert={nextClassToday && routeStats && !routeStats.message.toLowerCase().includes('early') && routeStats.color.includes('danger') ? routeStats.message : null}
             homeRouteMetrics={homeRouteMetrics}
             homeRouteStatus={homeRouteStatus}
             homeRouteBestBus={homeRouteBestBus}
@@ -2271,7 +2188,6 @@ export default function App() {
 
       case 'routes':
         const groupedBuses = groupedRouteOptions(visibleBuses);
-        const sortedBuses = groupedBuses.map((group) => group.bus);
         const showWalkTile = !isRouteLoading && !walkingDirectionsDismissed && directWalkTimeMinutes !== null;
         const isWalkingDirectionsActive = showWalkTile && selectedBusId === WALK_ROUTE_OPTION_ID && Boolean(directWalkRoute?.geometry);
         const sortedRouteTiles: RouteTile[] = [
@@ -2290,7 +2206,7 @@ export default function App() {
         ].sort((a, b) => a.totalTripTimeMinutes - b.totalTripTimeMinutes);
 
         return (
-          <div className="fixed inset-0 z-0 bg-[#eef3f5]">
+          <div className="fixed inset-0 z-0 bg-[var(--color-background)]">
             <RouteErrorBoundary>
               <BusMap
                 userPosition={userPosition}
@@ -2362,7 +2278,7 @@ export default function App() {
                 )}
               </div>
               {routeError && (
-                <div className="mt-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow">
+                <div className="mt-2 rounded-xl border border-[var(--color-dangerBorder)] bg-[var(--color-dangerSurface)] px-4 py-3 text-sm text-[var(--color-danger)] shadow">
                   {routeError}
                 </div>
               )}
@@ -2386,7 +2302,7 @@ export default function App() {
                       <div className="space-y-3">
                         {[
                           { icon: <CreditCard className="w-4 h-4 text-[var(--color-primary)] shrink-0 mt-0.5" />, title: 'Have your Clipper card ready', description: 'Prepare your fare before boarding to speed up the process' },
-                          { icon: <AlertTriangle className="w-4 h-4 text-yellow-600 shrink-0 mt-0.5" />, title: 'Watch out for the bus', description: 'Stay away from the curb until the bus comes to a complete stop' },
+                          { icon: <AlertTriangle className="w-4 h-4 text-[var(--color-warning)] shrink-0 mt-0.5" />, title: 'Watch out for the bus', description: 'Stay away from the curb until the bus comes to a complete stop' },
                           { icon: <Users className="w-4 h-4 text-[var(--color-secondary)] shrink-0 mt-0.5" />, title: 'Let passengers exit first', description: 'Allow everyone to leave before boarding. Watch for wheelchairs' },
                           { icon: <Heart className="w-4 h-4 text-[var(--color-primary)] shrink-0 mt-0.5" />, title: 'Offer seats to those who need them', description: 'Priority seating for seniors, pregnant individuals, and people with disabilities' },
                         ].map((reminder) => (
@@ -2402,7 +2318,6 @@ export default function App() {
                     </div>
                   )}
                   <div
-                    ref={navigationCarouselRef}
                     className="flex snap-x snap-mandatory gap-3 overflow-x-auto px-[calc((100vw-84vw)/2)] pb-3 [scroll-padding-inline:calc((100vw-84vw)/2)]"
                   >
                     {navigationSteps.map((step, index) => {
@@ -2423,7 +2338,7 @@ export default function App() {
                             <div className="flex flex-col items-end gap-1.5">
                               <div className="rounded-xl bg-[var(--color-primary)] px-2.5 py-1.5 text-right text-white shadow-sm">
                                 <p className="text-[11px] font-semibold leading-none">{step.topRightMetric}</p>
-                                <p className="mt-1 text-[9px] uppercase tracking-[0.12em] text-sky-100">{step.topRightLabel}</p>
+                                <p className="mt-1 text-[9px] uppercase tracking-[0.12em] text-white/80">{step.topRightLabel}</p>
                               </div>
                               {step.id === 'wait_for_bus' && !boardingRemindersExpanded && (
                                 <button
@@ -2458,11 +2373,11 @@ export default function App() {
                   className="flex items-end snap-x snap-mandatory gap-3 overflow-x-auto px-[calc((100vw-84vw)/2)] pb-4 [scroll-padding-inline:calc((100vw-84vw)/2)]"
                 >
                   {isRouteLoading ? (
-                  <div className="min-w-[84vw] max-w-[84vw] snap-center rounded-3xl border border-sky-100 bg-white/95 p-5 shadow-xl">
+                  <div className="min-w-[84vw] max-w-[84vw] snap-center rounded-3xl border border-[var(--color-border)] bg-white/95 p-5 shadow-xl">
                     <div className="flex h-full min-h-[220px] items-center justify-center">
                       <div className="text-center">
-                        <span className="mx-auto block h-3 w-3 animate-pulse rounded-full bg-sky-500" />
-                        <p className="mt-3 text-sm font-semibold text-sky-700">Loading route...</p>
+                        <span className="mx-auto block h-3 w-3 animate-pulse rounded-full bg-[var(--color-primary)]" />
+                        <p className="mt-3 text-sm font-semibold text-[var(--color-primary)]">Loading route...</p>
                       </div>
                     </div>
                   </div>
@@ -2481,12 +2396,12 @@ export default function App() {
                     }}
                     role="button"
                     tabIndex={0}
-                    className="relative min-w-[84vw] max-w-[84vw] snap-center self-end h-fit rounded-3xl border border-[var(--color-border)] bg-gradient-to-br from-white via-white to-slate-50 p-5 text-left shadow-xl transition"
+                    className="relative min-w-[84vw] max-w-[84vw] snap-center self-end h-fit rounded-3xl border border-[var(--color-border)] bg-gradient-to-br from-white via-white to-[var(--color-background)] p-5 text-left shadow-xl transition"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="flex items-center gap-2">
-                          <div className="rounded-2xl bg-emerald-100 p-2 text-emerald-700">
+                          <div className="rounded-2xl bg-[var(--color-successSurface)] p-2 text-[var(--color-success)]">
                             <Footprints className="h-4 w-4" />
                           </div>
                           <div>
@@ -2495,36 +2410,36 @@ export default function App() {
                           </div>
                         </div>
                         <div className="mt-3 flex flex-wrap gap-2">
-                          <div className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
+                          <div className="rounded-full bg-[var(--color-successSurface)] px-3 py-1 text-xs font-semibold text-[var(--color-success)]">
                             {directWalkTimeMinutes} min total travel
                           </div>
-                          <div className="rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-700">
+                          <div className="rounded-full bg-[var(--color-infoSurface)] px-3 py-1 text-xs font-semibold text-[var(--color-info)]">
                             Arrives {formatArrivalTimeFromNow(currentTime, directWalkTimeMinutes || 0) || 'Soon'}
                           </div>
                         </div>
                       </div>
-                      <div className="rounded-2xl bg-emerald-600 px-3 py-2 text-right text-white shadow-lg">
+                      <div className="rounded-2xl bg-[var(--color-success)] px-3 py-2 text-right text-white shadow-lg">
                         <p className="whitespace-nowrap text-xl font-bold">{formatArrivalTimeFromNow(currentTime, directWalkTimeMinutes || 0) || 'Soon'}</p>
-                        <p className="text-[11px] uppercase tracking-[0.14em] text-emerald-100">ETA</p>
+                        <p className="text-[11px] uppercase tracking-[0.14em] text-white/80">ETA</p>
                       </div>
                     </div>
                     <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
                       <div className="rounded-2xl bg-[var(--color-accent)] p-3 shadow-sm">
-                        <div className="flex items-center gap-2 text-emerald-700">
+                        <div className="flex items-center gap-2 text-[var(--color-success)]">
                           <Footprints className="h-4 w-4" />
                           <p className="whitespace-nowrap font-semibold">{directWalkTimeMinutes} min</p>
                         </div>
                         <p className="mt-1 text-[var(--color-textMuted)]">total walking time</p>
                       </div>
                       <div className="rounded-2xl bg-[var(--color-accent)] p-3 shadow-sm">
-                        <div className="flex items-center gap-2 text-sky-700">
+                        <div className="flex items-center gap-2 text-[var(--color-info)]">
                           <Clock className="h-4 w-4" />
                           <p className="font-semibold">{formatArrivalTimeFromNow(currentTime, directWalkTimeMinutes || 0) || 'Soon'}</p>
                         </div>
                         <p className="mt-1 text-[var(--color-textMuted)]">estimated arrival</p>
                       </div>
                       <div className="rounded-2xl bg-[var(--color-accent)] p-3 shadow-sm">
-                        <div className="flex items-center gap-2 text-indigo-700">
+                        <div className="flex items-center gap-2 text-[var(--color-primary)]">
                           <Navigation2 className="h-4 w-4" />
                           <p className="font-semibold">Walk now</p>
                         </div>
@@ -2590,7 +2505,7 @@ export default function App() {
                       }}
                       role="button"
                       tabIndex={0}
-                      className="relative rounded-3xl border border-[var(--color-border)] bg-gradient-to-br from-white via-white to-slate-50 p-5 text-left shadow-xl transition"
+                      className="relative rounded-3xl border border-[var(--color-border)] bg-gradient-to-br from-white via-white to-[var(--color-background)] p-5 text-left shadow-xl transition"
                     >
                     <div className="flex items-start justify-between gap-3">
                       <div>
@@ -2606,26 +2521,26 @@ export default function App() {
                       </div>
                       <div className="rounded-2xl bg-[var(--color-primary)] px-3 py-2 text-right text-white shadow-lg">
                         <p className="whitespace-nowrap text-xl font-bold">{estimatedArrivalLabel}</p>
-                        <p className="text-[11px] uppercase tracking-[0.14em] text-sky-100">ETA</p>
+                        <p className="text-[11px] uppercase tracking-[0.14em] text-white/80">ETA</p>
                       </div>
                     </div>
                     <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
                       <div className="rounded-2xl bg-[var(--color-accent)] p-3 shadow-sm">
-                        <div className="flex items-center gap-2 text-sky-700">
+                        <div className="flex items-center gap-2 text-[var(--color-info)]">
                           <Footprints className="h-4 w-4" />
                           <p className="whitespace-nowrap font-semibold">{totalWalkingTime} min</p>
                         </div>
                         <p className="mt-1 text-[var(--color-textMuted)]">total walking time</p>
                       </div>
                       <div className="rounded-2xl bg-[var(--color-accent)] p-3 shadow-sm">
-                        <div className="flex items-center gap-2 text-indigo-700">
+                        <div className="flex items-center gap-2 text-[var(--color-primary)]">
                           <Bus className="h-4 w-4" />
                           <p className="whitespace-nowrap font-semibold">{bus.rideTimeMinutes} min</p>
                         </div>
                         <p className="mt-1 text-[var(--color-textMuted)]">total bus ride time</p>
                       </div>
                       <div className="rounded-2xl bg-[var(--color-accent)] p-3 shadow-sm">
-                        <div className="flex items-center gap-2 text-emerald-700">
+                        <div className="flex items-center gap-2 text-[var(--color-success)]">
                           <Clock className="h-4 w-4" />
                           <p className="font-semibold">{formatClockTime(bus.departureTime) || 'Soon'}</p>
                         </div>
@@ -2639,20 +2554,20 @@ export default function App() {
                             displayedOccupancy === null || displayedOccupancy === undefined
                               ? 'text-[var(--color-textMuted)]'
                               : displayedOccupancy >= 85
-                                ? 'text-red-600'
+                                ? 'text-[var(--color-danger)]'
                                 : displayedOccupancy >= 60
-                                  ? 'text-amber-600'
-                                  : 'text-green-600'
+                                  ? 'text-[var(--color-warning)]'
+                                  : 'text-[var(--color-success)]'
                           }`} />
                           <div>
                             <p className={`text-3xl font-extrabold leading-none ${
                           displayedOccupancy === null || displayedOccupancy === undefined
                             ? 'text-[var(--color-textMuted)]'
                             : displayedOccupancy >= 85
-                              ? 'text-red-600'
+                              ? 'text-[var(--color-danger)]'
                               : displayedOccupancy >= 60
-                                ? 'text-amber-600'
-                                : 'text-green-600'
+                                ? 'text-[var(--color-warning)]'
+                                : 'text-[var(--color-success)]'
                             }`}>
                           {displayedOccupancy === null || displayedOccupancy === undefined ? '--' : `${displayedOccupancy}%`}
                             </p>
@@ -2685,58 +2600,46 @@ export default function App() {
         );
 
       case 'local-eats':
-        return (
-          <LocalEatsSection
-            streakCount={calculateStreak()}
-            onTimeRate={onTimeRate}
-          />
-        );
+        return <LocalEatsSection token={sessionToken} userLocation={deviceLocation} />;
 
       case 'settings':
         return (
           <SettingsSection
             schedule={schedule}
             onEmojiChange={updateClassEmoji}
-            onClassUpdate={updateClasses}
-            onSaveClasses={saveClasses}
             onReplaceClass={replaceClass}
             onDeleteClass={deleteClass}
             onOpenSemesterWrapped={() => setShowSemesterWrapped(true)}
             userEmail={userEmail}
             onLogout={handleLogout}
             currentTheme={selectedTheme}
-            onThemeChange={setSelectedTheme}
+            onThemeChange={handleThemeChange}
             customTheme={customTheme}
             onCustomThemeUpdate={handleCustomThemeUpdate}
             onDeleteCustomTheme={handleDeleteCustomTheme}
             smartNotificationsEnabled={notificationsEnabled}
-            onToggleSmartNotifications={setNotificationsEnabled}
+            capacityAlertsEnabled={capacityAlertsEnabled}
+            delayNotificationsEnabled={delayNotificationsEnabled}
+            onToggleSmartNotifications={(enabled) => handleNotificationPreferenceChange('smart_departure_alerts', enabled)}
+            onToggleCapacityAlerts={(enabled) => handleNotificationPreferenceChange('capacity_alerts', enabled)}
+            onToggleDelayNotifications={(enabled) => handleNotificationPreferenceChange('delay_notifications', enabled)}
             onImportCalendar={handleCalendarImport}
             onAddClass={addManualClass}
             onSaveMeetingTime={saveMeetingTime}
+            onExportData={handleExportData}
+            onClearData={handleClearData}
             homeAddress={homeAddress}
             studySpot={studySpot}
             onSetHomeAddress={setHomeAddress}
             onSetStudySpot={setStudySpot}
             onSearchLocations={(q) => searchLocations(q, deviceLocation)}
-            deviceLocation={deviceLocation}
             nextClassForAlerts={nextClass}
             busesForAlerts={buses}
             currentTime={currentTime}
             onTestNotification={nextClassToday ? () => {
               const classCode = nextClassToday.code;
               const leaveBy = homeRouteMetrics?.leaveByValue ?? '—';
-              import('@capacitor/local-notifications').then(({ LocalNotifications }) => {
-                LocalNotifications.schedule({
-                  notifications: [{
-                    id: 99999,
-                    title: `Get ready to head to ${classCode}`,
-                    body: `Leave by ${leaveBy} to catch the bus`,
-                    schedule: { at: new Date(Date.now() + 5000) },
-                    extra: { type: 'test' },
-                  }],
-                });
-              });
+              scheduleTestNotification(classCode, leaveBy);
             } : undefined}
           />
         );
@@ -2767,7 +2670,7 @@ export default function App() {
             <div className="flex items-center gap-3">
               <div className="px-2 py-1 bg-[var(--color-accent)] rounded-full flex items-center gap-1">
                 <span>🔥</span>
-                <span className="text-xs font-semibold text-[var(--color-primary)]">{calculateStreak()}</span>
+                <span className="text-xs font-semibold text-[var(--color-primary)]">{streakCount}</span>
               </div>
             </div>
           </div>
@@ -2785,7 +2688,6 @@ export default function App() {
       <Navigation
         activeSection={activeSection}
         onSectionChange={setActiveSection}
-        streakCount={calculateStreak()}
       />
 
       {/* Daily Summary Modal */}
@@ -2806,16 +2708,6 @@ export default function App() {
         />
       )}
 
-      {/* Boarding Reminders Modal */}
-      {showBoardingReminders && selectedBusForReminders && (
-        <BoardingReminders
-          busNumber={selectedBusForReminders}
-          onClose={() => {
-            setShowBoardingReminders(false);
-            setSelectedBusForReminders(null);
-          }}
-        />
-      )}
     </div>
   );
 }

@@ -1,360 +1,129 @@
-import { useState } from 'react';
-import { MapPin, Clock, DollarSign, Star, Coffee, UtensilsCrossed, Sandwich, Pizza, IceCream, Heart, Navigation, Filter, Tag, Sparkles, Percent } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { AlertCircle, Clock, Coffee, Heart, IceCream, Loader2, MapPin, Navigation, Percent, Sandwich, Sparkles, Star, Tag, UtensilsCrossed } from 'lucide-react';
+import { Coordinates, fetchLocalEats, LocalEat, setLocalEatFavorite } from '../utils/api';
 
-interface LocalEat {
-  id: string;
-  name: string;
-  type: 'cafe' | 'restaurant' | 'quick-bites' | 'dessert';
-  emoji: string;
-  rating: number;
-  priceLevel: 1 | 2 | 3 | 4;
-  distance: number; // in miles
-  walkTime: number; // in minutes
-  address: string;
-  hours: string;
-  description: string;
-  isOpen: boolean;
-  isFavorite: boolean;
-  cuisineType: string;
-  image?: string;
-  studentDiscount?: {
-    percentage: number;
-    details: string;
-    validUntil?: string;
-    isNew?: boolean;
-  };
-}
+type FilterId = 'all' | 'cafe' | 'restaurant' | 'quick-bites' | 'dessert' | 'deals';
 
 interface LocalEatsSectionProps {
-  streakCount: number;
-  onTimeRate: number;
+  token?: string | null;
+  userLocation?: Coordinates | null;
 }
 
-const MOCK_EATS: LocalEat[] = [
-  {
-    id: '1',
-    name: 'Penelope\'s',
-    type: 'cafe',
-    emoji: '🍰',
-    rating: 4.8,
-    priceLevel: 2,
-    distance: 0.2,
-    walkTime: 4,
-    address: '2216 Shattuck Ave',
-    hours: '8am - 4pm',
-    description: 'Artisan bakery and cafe with fresh pastries and sandwiches',
-    isOpen: true,
-    isFavorite: true,
-    cuisineType: 'Bakery & Cafe',
-    studentDiscount: {
-      percentage: 15,
-      details: '15% off all food and drinks with valid student ID',
-      isNew: true
-    }
-  },
-  {
-    id: '2',
-    name: 'Qargo Coffee',
-    type: 'cafe',
-    emoji: '☕',
-    rating: 4.7,
-    priceLevel: 2,
-    distance: 0.3,
-    walkTime: 6,
-    address: '2391 Telegraph Ave',
-    hours: '7am - 6pm',
-    description: 'Cozy coffee shop perfect for studying',
-    isOpen: true,
-    isFavorite: true,
-    cuisineType: 'Coffee & Tea',
-    studentDiscount: {
-      percentage: 10,
-      details: '10% off for UC Berkeley students'
-    }
-  },
-  {
-    id: '3',
-    name: 'Cafe Strada',
-    type: 'cafe',
-    emoji: '☕',
-    rating: 4.5,
-    priceLevel: 2,
-    distance: 0.1,
-    walkTime: 2,
-    address: '2300 College Ave',
-    hours: '6:30am - 7pm',
-    description: 'Classic Berkeley cafe with outdoor seating',
-    isOpen: true,
-    isFavorite: true,
-    cuisineType: 'Coffee & Tea',
-    studentDiscount: {
-      percentage: 5,
-      details: '5% off with student ID on weekdays'
-    }
-  },
-  {
-    id: '4',
-    name: 'Sliver Pizzeria',
-    type: 'restaurant',
-    emoji: '🍕',
-    rating: 4.6,
-    priceLevel: 2,
-    distance: 0.4,
-    walkTime: 8,
-    address: '2132 Center St',
-    hours: '11am - 9pm',
-    description: 'Thin-crust pizza with rotating daily flavors',
-    isOpen: true,
-    isFavorite: false,
-    cuisineType: 'Pizza',
-    studentDiscount: {
-      percentage: 10,
-      details: '10% off for students after 2pm',
-      validUntil: 'May 15, 2026'
-    }
-  },
-  {
-    id: '5',
-    name: 'Gypsy\'s Trattoria',
-    type: 'restaurant',
-    emoji: '🍝',
-    rating: 4.7,
-    priceLevel: 2,
-    distance: 0.5,
-    walkTime: 10,
-    address: '2519 Durant Ave',
-    hours: '11am - 10pm',
-    description: 'Italian comfort food in a cozy setting',
-    isOpen: true,
-    isFavorite: false,
-    cuisineType: 'Italian',
-    studentDiscount: {
-      percentage: 15,
-      details: '15% off lunch specials for students (11am-3pm)',
-      isNew: true
-    }
-  },
-  {
-    id: '6',
-    name: 'Ike\'s Love & Sandwiches',
-    type: 'quick-bites',
-    emoji: '🥪',
-    rating: 4.5,
-    priceLevel: 2,
-    distance: 0.3,
-    walkTime: 6,
-    address: '2489 Telegraph Ave',
-    hours: '10am - 9pm',
-    description: 'Creative sandwiches with unique flavor combinations',
-    isOpen: true,
-    isFavorite: true,
-    cuisineType: 'Sandwiches',
-    studentDiscount: {
-      percentage: 10,
-      details: '10% off any sandwich with Cal1Card'
-    }
-  },
-  {
-    id: '7',
-    name: 'Nefeli Caffe',
-    type: 'cafe',
-    emoji: '🥐',
-    rating: 4.6,
-    priceLevel: 2,
-    distance: 0.3,
-    walkTime: 6,
-    address: '1854 Euclid Ave',
-    hours: '7am - 8pm',
-    description: 'Mediterranean-inspired cafe with homemade desserts',
-    isOpen: true,
-    isFavorite: false,
-    cuisineType: 'Mediterranean Cafe',
-    studentDiscount: {
-      percentage: 10,
-      details: '10% off pastries and coffee for students'
-    }
-  },
-  {
-    id: '8',
-    name: 'Pho K & K',
-    type: 'restaurant',
-    emoji: '🍜',
-    rating: 4.4,
-    priceLevel: 1,
-    distance: 0.6,
-    walkTime: 12,
-    address: '2536 Telegraph Ave',
-    hours: '11am - 9pm',
-    description: 'Authentic Vietnamese pho and rice plates',
-    isOpen: true,
-    isFavorite: false,
-    cuisineType: 'Vietnamese',
-    studentDiscount: {
-      percentage: 5,
-      details: '5% off all menu items with student ID'
-    }
-  },
-  {
-    id: '9',
-    name: 'Cream',
-    type: 'dessert',
-    emoji: '🍦',
-    rating: 4.6,
-    priceLevel: 2,
-    distance: 0.3,
-    walkTime: 6,
-    address: '2399 Telegraph Ave',
-    hours: '12pm - 11pm',
-    description: 'Ice cream sandwiches made to order',
-    isOpen: true,
-    isFavorite: false,
-    cuisineType: 'Ice Cream',
-    studentDiscount: {
-      percentage: 10,
-      details: '10% off for UC Berkeley students',
-      validUntil: 'End of semester'
-    }
-  },
-  {
-    id: '10',
-    name: 'Top Dog',
-    type: 'quick-bites',
-    emoji: '🌭',
-    rating: 4.3,
-    priceLevel: 1,
-    distance: 0.2,
-    walkTime: 4,
-    address: '2534 Durant Ave',
-    hours: '10am - 2am',
-    description: 'Berkeley institution serving hot dogs since 1966',
-    isOpen: true,
-    isFavorite: false,
-    cuisineType: 'Hot Dogs',
-    studentDiscount: {
-      percentage: 5,
-      details: '$0.50 off with student ID'
-    }
-  },
-  {
-    id: '11',
-    name: 'Artis Coffee',
-    type: 'cafe',
-    emoji: '☕',
-    rating: 4.9,
-    priceLevel: 2,
-    distance: 0.3,
-    walkTime: 6,
-    address: '1717 University Ave',
-    hours: '7am - 5pm',
-    description: 'Specialty coffee roaster with great study vibes',
-    isOpen: true,
-    isFavorite: false,
-    cuisineType: 'Coffee & Tea'
-  },
-  {
-    id: '12',
-    name: 'Sweetgreen',
-    type: 'quick-bites',
-    emoji: '🥗',
-    rating: 4.5,
-    priceLevel: 2,
-    distance: 0.3,
-    walkTime: 6,
-    address: '2498 Telegraph Ave',
-    hours: '10:30am - 9pm',
-    description: 'Fresh salads and healthy bowls',
-    isOpen: true,
-    isFavorite: false,
-    cuisineType: 'Salads & Bowls'
-  },
+const FILTERS: Array<{ id: FilterId; label: string; icon: typeof UtensilsCrossed }> = [
+  { id: 'all', label: 'All', icon: UtensilsCrossed },
+  { id: 'deals', label: 'Student Deals', icon: Tag },
+  { id: 'cafe', label: 'Cafes', icon: Coffee },
+  { id: 'restaurant', label: 'Restaurants', icon: UtensilsCrossed },
+  { id: 'quick-bites', label: 'Quick Bites', icon: Sandwich },
+  { id: 'dessert', label: 'Dessert', icon: IceCream },
 ];
 
-export function LocalEatsSection({ streakCount, onTimeRate }: LocalEatsSectionProps) {
-  const [selectedFilter, setSelectedFilter] = useState<'all' | 'cafe' | 'restaurant' | 'quick-bites' | 'dessert' | 'deals'>('all');
-  const [favorites, setFavorites] = useState<Set<string>>(
-    new Set(MOCK_EATS.filter(eat => eat.isFavorite).map(eat => eat.id))
-  );
+function priceSymbol(level: number) {
+  return '$'.repeat(Math.max(1, Math.min(level, 4)));
+}
+
+function formatDistance(eat: LocalEat) {
+  if (typeof eat.distance_miles !== 'number') return 'Nearby';
+  return `${eat.distance_miles.toFixed(eat.distance_miles < 1 ? 1 : 0)} mi`;
+}
+
+function formatWalkTime(eat: LocalEat) {
+  if (typeof eat.walk_time_minutes !== 'number') return 'Walk time unavailable';
+  return `${Math.round(eat.walk_time_minutes)} min walk`;
+}
+
+export function LocalEatsSection({ token, userLocation }: LocalEatsSectionProps) {
+  const [selectedFilter, setSelectedFilter] = useState<FilterId>('all');
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+  const [eats, setEats] = useState<LocalEat[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [favoriteSavingIds, setFavoriteSavingIds] = useState<Set<string>>(new Set());
 
-  const filteredEats = MOCK_EATS.filter(eat => {
-    const matchesFilter = selectedFilter === 'all' ||
-                         selectedFilter === 'deals' ? !!eat.studentDiscount :
-                         eat.type === selectedFilter;
-    const matchesFavorites = !showFavoritesOnly || favorites.has(eat.id);
-    return matchesFilter && matchesFavorites;
-  });
+  useEffect(() => {
+    let cancelled = false;
+    const controller = new AbortController();
 
-  const toggleFavorite = (id: string) => {
-    setFavorites(prev => {
-      const newFavorites = new Set(prev);
-      if (newFavorites.has(id)) {
-        newFavorites.delete(id);
-      } else {
-        newFavorites.add(id);
+    async function loadEats() {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const results = await fetchLocalEats({
+          category: selectedFilter === 'all' || selectedFilter === 'deals' ? null : selectedFilter,
+          dealsOnly: selectedFilter === 'deals',
+          favoritesOnly: showFavoritesOnly,
+          location: userLocation,
+          token,
+          signal: controller.signal,
+        });
+        if (cancelled) return;
+        setEats(results);
+      } catch {
+        if (cancelled) return;
+        setEats([]);
+        setError('Local Eats is waiting on backend restaurant data.');
+      } finally {
+        if (!cancelled) setIsLoading(false);
       }
-      return newFavorites;
-    });
-  };
+    }
 
-  const getPriceSymbol = (level: number) => {
-    return '$'.repeat(level);
-  };
+    loadEats();
 
-  const getTypeIcon = (type: string) => {
-    switch (type) {
-      case 'cafe':
-        return <Coffee className="w-5 h-5" />;
-      case 'restaurant':
-        return <UtensilsCrossed className="w-5 h-5" />;
-      case 'quick-bites':
-        return <Sandwich className="w-5 h-5" />;
-      case 'dessert':
-        return <IceCream className="w-5 h-5" />;
-      default:
-        return <UtensilsCrossed className="w-5 h-5" />;
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [selectedFilter, showFavoritesOnly, token, userLocation]);
+
+  const dealsCount = useMemo(() => eats.filter((eat) => eat.student_discount).length, [eats]);
+
+  const toggleFavorite = async (eat: LocalEat) => {
+    const nextFavorite = !eat.is_favorite;
+    setFavoriteSavingIds((prev) => new Set([...prev, eat.id]));
+    setEats((prev) => prev.map((item) => item.id === eat.id ? { ...item, is_favorite: nextFavorite } : item));
+
+    try {
+      await setLocalEatFavorite(eat.id, nextFavorite, token);
+      if (showFavoritesOnly && !nextFavorite) {
+        setEats((prev) => prev.filter((item) => item.id !== eat.id));
+      }
+    } catch {
+      setEats((prev) => prev.map((item) => item.id === eat.id ? { ...item, is_favorite: eat.is_favorite } : item));
+      setError('Could not update that favorite. Please try again.');
+    } finally {
+      setFavoriteSavingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(eat.id);
+        return next;
+      });
     }
   };
-
-  const filters = [
-    { id: 'all', label: 'All', icon: UtensilsCrossed },
-    { id: 'deals', label: 'Student Deals', icon: Tag },
-    { id: 'cafe', label: 'Cafes', icon: Coffee },
-    { id: 'restaurant', label: 'Restaurants', icon: UtensilsCrossed },
-    { id: 'quick-bites', label: 'Quick Bites', icon: Sandwich },
-    { id: 'dessert', label: 'Dessert', icon: IceCream },
-  ];
-
-  const dealsCount = MOCK_EATS.filter(eat => eat.studentDiscount).length;
 
   return (
     <div className="max-w-4xl mx-auto">
-      {/* Hero Section */}
       <div className="bg-gradient-to-br from-[var(--color-primary)] to-[var(--color-secondary)] rounded-3xl p-8 text-white mb-6 shadow-xl">
         <div className="flex items-center gap-2 mb-2">
           <Sparkles className="w-6 h-6" />
           <span className="text-white/80 text-sm font-medium">Student Discounts</span>
         </div>
         <h1 className="text-4xl font-bold mb-2">Local Eats</h1>
-        <p className="text-white/80 text-lg">
-          Save money with exclusive student deals 💰
-        </p>
+        <p className="text-white/80 text-lg">Save money with exclusive student deals</p>
         <div className="mt-4 bg-white/20 rounded-xl p-3 backdrop-blur-sm">
           <p className="text-white font-semibold">
-            🎉 {dealsCount} restaurants offering student discounts!
+            {isLoading ? 'Checking current deals...' : `${dealsCount} ${dealsCount === 1 ? 'place has' : 'places have'} student discounts`}
           </p>
         </div>
       </div>
 
-      {/* Filter Bar */}
       <div className="bg-white rounded-2xl p-4 mb-6 border border-[var(--color-border)] shadow-sm">
         <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-          {filters.map(filter => {
+          {FILTERS.map((filter) => {
             const Icon = filter.icon;
             const isActive = selectedFilter === filter.id;
             return (
               <button
                 key={filter.id}
-                onClick={() => setSelectedFilter(filter.id as any)}
+                onClick={() => setSelectedFilter(filter.id)}
                 className={`flex items-center gap-2 px-4 py-2 rounded-xl font-medium whitespace-nowrap transition-all ${
                   isActive
                     ? 'bg-[var(--color-primary)] text-white shadow-md'
@@ -368,175 +137,166 @@ export function LocalEatsSection({ streakCount, onTimeRate }: LocalEatsSectionPr
           })}
         </div>
 
-        {/* Favorites Toggle */}
         <button
-          onClick={() => setShowFavoritesOnly(!showFavoritesOnly)}
-          className={`mt-3 flex items-center gap-2 px-4 py-2 rounded-xl font-medium transition-all ${
+          onClick={() => setShowFavoritesOnly((value) => !value)}
+          className={`mt-3 flex items-center gap-2 px-4 py-2 rounded-xl border font-medium transition-all ${
             showFavoritesOnly
-              ? 'bg-pink-100 text-pink-700 border-2 border-pink-300'
-              : 'bg-[var(--color-accent)] text-[var(--color-textSecondary)] hover:bg-[var(--color-border)]'
+              ? 'border-[var(--color-primary)] bg-[var(--color-accent)] text-[var(--color-primary)]'
+              : 'border-transparent bg-[var(--color-accent)] text-[var(--color-textSecondary)] hover:bg-[var(--color-border)]'
           }`}
         >
-          <Heart className={`w-4 h-4 ${showFavoritesOnly ? 'fill-pink-700' : ''}`} />
+          <Heart className={`w-4 h-4 ${showFavoritesOnly ? 'fill-[var(--color-primary)]' : ''}`} />
           Favorites Only
         </button>
       </div>
 
-      {/* Results Count */}
       <div className="mb-4 px-2">
         <p className="text-sm text-[var(--color-textMuted)]">
-          Found {filteredEats.length} {filteredEats.length === 1 ? 'place' : 'places'}
-          {showFavoritesOnly && ' in favorites'}
+          {isLoading ? 'Loading places...' : `Found ${eats.length} ${eats.length === 1 ? 'place' : 'places'}${showFavoritesOnly ? ' in favorites' : ''}`}
         </p>
       </div>
 
-      {/* Eats List */}
-      <div className="space-y-4">
-        {filteredEats.map(eat => (
-          <div
-            key={eat.id}
-            className={`bg-white rounded-2xl p-5 border-2 shadow-sm hover:shadow-md transition-all ${
-              eat.studentDiscount
-                ? 'border-[var(--color-primary)] bg-gradient-to-br from-white to-[var(--color-accent)]'
-                : 'border-[var(--color-border)]'
-            }`}
-          >
-            {/* Student Discount Banner */}
-            {eat.studentDiscount && (
-              <div className="mb-4 -mt-2 -mx-2 px-4 py-3 bg-gradient-to-r from-[var(--color-primary)] to-[var(--color-secondary)] rounded-t-xl">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center">
-                      <Percent className="w-5 h-5 text-[var(--color-primary)]" />
-                    </div>
-                    <div>
-                      <p className="text-white font-bold text-lg">
-                        {eat.studentDiscount.percentage}% OFF
-                      </p>
-                      <p className="text-white/90 text-xs">Student Discount</p>
-                    </div>
-                  </div>
-                  {eat.studentDiscount.isNew && (
-                    <div className="bg-yellow-400 text-yellow-900 px-3 py-1 rounded-full text-xs font-bold animate-pulse">
-                      NEW! 🎉
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
+      {error && (
+        <div className="mb-4 flex items-start gap-3 rounded-2xl border border-[var(--color-warningBorder)] bg-[var(--color-warningSurface)] p-4 text-sm text-[var(--color-warning)]">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>{error}</p>
+        </div>
+      )}
 
-            <div className="flex items-start justify-between mb-3">
-              <div className="flex items-start gap-3 flex-1">
-                {/* Emoji Icon */}
-                <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-2xl flex-shrink-0 ${
-                  eat.studentDiscount
-                    ? 'bg-gradient-to-br from-[var(--color-accent)] to-white ring-2 ring-[var(--color-primary)]'
-                    : 'bg-gradient-to-br from-[var(--color-accent)] to-white'
-                }`}>
-                  {eat.emoji}
-                </div>
-
-                {/* Info */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <h3 className="text-lg font-bold text-[var(--color-textPrimary)]">{eat.name}</h3>
-                    {!eat.isOpen && (
-                      <span className="px-2 py-0.5 bg-red-100 text-red-700 text-xs font-medium rounded-full">
-                        Closed
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-sm text-[var(--color-textMuted)] mb-2">{eat.cuisineType}</p>
-                  <p className="text-sm text-[var(--color-textSecondary)]">{eat.description}</p>
-
-                  {/* Student Discount Details */}
-                  {eat.studentDiscount && (
-                    <div className="mt-3 bg-white border-2 border-[var(--color-primary)] rounded-xl p-3">
-                      <div className="flex items-start gap-2">
-                        <Tag className="w-4 h-4 text-[var(--color-primary)] mt-0.5 flex-shrink-0" />
-                        <div className="flex-1">
-                          <p className="text-sm font-semibold text-[var(--color-textPrimary)]">
-                            {eat.studentDiscount.details}
-                          </p>
-                          {eat.studentDiscount.validUntil && (
-                            <p className="text-xs text-[var(--color-textMuted)] mt-1">
-                              Valid until: {eat.studentDiscount.validUntil}
-                            </p>
-                          )}
-                        </div>
+      {isLoading ? (
+        <div className="rounded-2xl border border-[var(--color-border)] bg-white p-8 text-center shadow-sm">
+          <Loader2 className="mx-auto h-6 w-6 animate-spin text-[var(--color-primary)]" />
+          <p className="mt-3 text-sm font-medium text-[var(--color-textSecondary)]">Loading Local Eats...</p>
+        </div>
+      ) : eats.length === 0 ? (
+        <div className="text-center py-12 rounded-2xl border border-[var(--color-border)] bg-white">
+          <UtensilsCrossed className="mx-auto h-12 w-12 text-[var(--color-textMuted)]" />
+          <h3 className="mt-4 text-xl font-bold text-[var(--color-textPrimary)]">No places found</h3>
+          <p className="mt-2 text-[var(--color-textMuted)]">
+            {showFavoritesOnly ? 'No saved places match this filter yet.' : 'Try another filter or check again after backend data is loaded.'}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {eats.map((eat) => (
+            <div
+              key={eat.id}
+              className={`bg-white rounded-2xl p-5 border-2 shadow-sm hover:shadow-md transition-all ${
+                eat.student_discount
+                  ? 'border-[var(--color-primary)] bg-gradient-to-br from-white to-[var(--color-accent)]'
+                  : 'border-[var(--color-border)]'
+              }`}
+            >
+              {eat.student_discount && (
+                <div className="mb-4 -mt-2 -mx-2 px-4 py-3 bg-gradient-to-r from-[var(--color-primary)] to-[var(--color-secondary)] rounded-t-xl">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center">
+                        <Percent className="w-5 h-5 text-[var(--color-primary)]" />
+                      </div>
+                      <div>
+                        <p className="text-white font-bold text-lg">{eat.student_discount.percentage}% OFF</p>
+                        <p className="text-white/90 text-xs">Student Discount</p>
                       </div>
                     </div>
-                  )}
+                    {eat.student_discount.is_new && (
+                      <div className="bg-white/90 text-[var(--color-primary)] px-3 py-1 rounded-full text-xs font-bold">
+                        New
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex items-start gap-3 flex-1">
+                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-2xl flex-shrink-0 ${
+                    eat.student_discount
+                      ? 'bg-gradient-to-br from-[var(--color-accent)] to-white ring-2 ring-[var(--color-primary)]'
+                      : 'bg-gradient-to-br from-[var(--color-accent)] to-white'
+                  }`}>
+                    {eat.emoji}
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <h3 className="text-lg font-bold text-[var(--color-textPrimary)]">{eat.name}</h3>
+                      {!eat.is_open && (
+                        <span className="px-2 py-0.5 bg-[var(--color-dangerSurface)] text-[var(--color-danger)] text-xs font-medium rounded-full">
+                          Closed
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-[var(--color-textMuted)] mb-2">{eat.cuisine_type}</p>
+                    <p className="text-sm text-[var(--color-textSecondary)]">{eat.description}</p>
+
+                    {eat.student_discount && (
+                      <div className="mt-3 bg-white border-2 border-[var(--color-primary)] rounded-xl p-3">
+                        <div className="flex items-start gap-2">
+                          <Tag className="w-4 h-4 text-[var(--color-primary)] mt-0.5 flex-shrink-0" />
+                          <div className="flex-1">
+                            <p className="text-sm font-semibold text-[var(--color-textPrimary)]">{eat.student_discount.details}</p>
+                            {eat.student_discount.valid_until && (
+                              <p className="text-xs text-[var(--color-textMuted)] mt-1">
+                                Valid until: {eat.student_discount.valid_until}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => toggleFavorite(eat)}
+                  disabled={favoriteSavingIds.has(eat.id)}
+                  className="ml-2 p-2 rounded-full hover:bg-[var(--color-accent)] transition-colors flex-shrink-0 disabled:opacity-50"
+                  aria-label={eat.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
+                >
+                  <Heart
+                    className={`w-5 h-5 ${
+                      eat.is_favorite
+                        ? 'fill-[var(--color-primary)] text-[var(--color-primary)]'
+                        : 'text-[var(--color-textMuted)]'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              <div className="flex items-center gap-4 mb-3 flex-wrap">
+                {typeof eat.rating === 'number' && (
+                  <div className="flex items-center gap-1">
+                    <Star className="w-4 h-4 fill-[var(--color-warning)] text-[var(--color-warning)]" />
+                    <span className="text-sm font-medium text-[var(--color-textPrimary)]">{eat.rating.toFixed(1)}</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-1">
+                  <span className="text-sm font-medium text-[var(--color-success)]">{priceSymbol(eat.price_level)}</span>
+                  <span className="text-xs text-[var(--color-textMuted)]">{priceSymbol(4 - eat.price_level)}</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Navigation className="w-4 h-4 text-[var(--color-info)]" />
+                  <span className="text-sm text-[var(--color-textSecondary)]">{formatDistance(eat)}</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Clock className="w-4 h-4 text-[var(--color-primary)]" />
+                  <span className="text-sm text-[var(--color-textSecondary)]">{formatWalkTime(eat)}</span>
                 </div>
               </div>
 
-              {/* Favorite Button */}
-              <button
-                onClick={() => toggleFavorite(eat.id)}
-                className="ml-2 p-2 rounded-full hover:bg-pink-50 transition-colors flex-shrink-0"
-              >
-                <Heart
-                  className={`w-5 h-5 ${
-                    favorites.has(eat.id)
-                      ? 'fill-pink-500 text-pink-500'
-                      : 'text-gray-300'
-                  }`}
-                />
-              </button>
-            </div>
-
-            {/* Stats Row */}
-            <div className="flex items-center gap-4 mb-3 flex-wrap">
-              {/* Rating */}
-              <div className="flex items-center gap-1">
-                <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
-                <span className="text-sm font-medium text-[var(--color-textPrimary)]">{eat.rating}</span>
-              </div>
-
-              {/* Price */}
-              <div className="flex items-center gap-1">
-                <span className="text-sm font-medium text-green-600">{getPriceSymbol(eat.priceLevel)}</span>
-                <span className="text-xs text-gray-400">{getPriceSymbol(4 - eat.priceLevel)}</span>
-              </div>
-
-              {/* Distance */}
-              <div className="flex items-center gap-1">
-                <Navigation className="w-4 h-4 text-blue-600" />
-                <span className="text-sm text-[var(--color-textSecondary)]">{eat.distance} mi</span>
-              </div>
-
-              {/* Walk Time */}
-              <div className="flex items-center gap-1">
-                <Clock className="w-4 h-4 text-[var(--color-primary)]" />
-                <span className="text-sm text-[var(--color-textSecondary)]">{eat.walkTime} min walk</span>
+              <div className="pt-3 border-t border-[var(--color-border)] flex items-center justify-between text-sm flex-wrap gap-2">
+                <div className="flex items-center gap-1 text-[var(--color-textMuted)]">
+                  <MapPin className="w-3.5 h-3.5" />
+                  <span>{eat.address}</span>
+                </div>
+                <div className="flex items-center gap-1 text-[var(--color-textMuted)]">
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>{eat.hours}</span>
+                </div>
               </div>
             </div>
-
-            {/* Address & Hours */}
-            <div className="pt-3 border-t border-[var(--color-border)] flex items-center justify-between text-sm flex-wrap gap-2">
-              <div className="flex items-center gap-1 text-[var(--color-textMuted)]">
-                <MapPin className="w-3.5 h-3.5" />
-                <span>{eat.address}</span>
-              </div>
-              <div className="flex items-center gap-1 text-[var(--color-textMuted)]">
-                <Clock className="w-3.5 h-3.5" />
-                <span>{eat.hours}</span>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Empty State */}
-      {filteredEats.length === 0 && (
-        <div className="text-center py-12">
-          <div className="text-6xl mb-4">🍽️</div>
-          <h3 className="text-xl font-bold text-[var(--color-textPrimary)] mb-2">No places found</h3>
-          <p className="text-[var(--color-textMuted)]">
-            {showFavoritesOnly
-              ? 'You haven\'t favorited any places yet'
-              : 'Try adjusting your filters'}
-          </p>
+          ))}
         </div>
       )}
     </div>

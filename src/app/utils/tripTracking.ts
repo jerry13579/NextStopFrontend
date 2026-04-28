@@ -14,12 +14,28 @@ export interface Trip {
 }
 
 const STORAGE_KEY = 'campus_transit_trips';
+const CACHE_WRITTEN_AT_KEY = 'campus_transit_trips_cached_at';
 
 type StoredTrip = Omit<Trip, 'date' | 'scheduledTime' | 'actualArrivalTime'> & {
   date: string;
   scheduledTime: string;
   actualArrivalTime: string;
 };
+
+export interface RemoteTrip {
+  id: string;
+  date: string;
+  class_code: string;
+  class_name: string;
+  scheduled_time: string;
+  actual_arrival_time: string;
+  was_on_time: boolean;
+  mode: 'bus' | 'walk';
+  bus_line?: string | null;
+  distance_km: number;
+  steps?: number | null;
+  calories_burned?: number | null;
+}
 
 const LEGACY_GENERATED_CLASS_CODES = new Set(['CS 61B', 'MATH 1B', 'PSYCH 1']);
 
@@ -61,6 +77,52 @@ export function loadTrips(): Trip[] {
   }
 }
 
+export function cacheTrips(trips: Trip[]) {
+  const storedTrips: StoredTrip[] = trips.map((trip) => ({
+    ...trip,
+    date: trip.date.toISOString(),
+    scheduledTime: trip.scheduledTime.toISOString(),
+    actualArrivalTime: trip.actualArrivalTime.toISOString(),
+  }));
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(storedTrips));
+  localStorage.setItem(CACHE_WRITTEN_AT_KEY, new Date().toISOString());
+}
+
+export function remoteTripToTrip(trip: RemoteTrip): Trip | null {
+  const parsed: Trip = {
+    id: trip.id,
+    date: new Date(trip.date),
+    classCode: trip.class_code,
+    className: trip.class_name,
+    scheduledTime: new Date(trip.scheduled_time),
+    actualArrivalTime: new Date(trip.actual_arrival_time),
+    wasOnTime: trip.was_on_time,
+    mode: trip.mode,
+    busLine: trip.bus_line || undefined,
+    distance: trip.distance_km,
+    steps: trip.steps ?? undefined,
+    caloriesBurned: trip.calories_burned ?? undefined,
+  };
+
+  if (
+    Number.isNaN(parsed.date.getTime()) ||
+    Number.isNaN(parsed.scheduledTime.getTime()) ||
+    Number.isNaN(parsed.actualArrivalTime.getTime())
+  ) {
+    return null;
+  }
+
+  return parsed;
+}
+
+export function upsertTrip(trips: Trip[], trip: Trip): Trip[] {
+  const existingIndex = trips.findIndex((item) => item.id === trip.id);
+  if (existingIndex < 0) {
+    return [...trips, trip].sort((a, b) => a.date.getTime() - b.date.getTime());
+  }
+  return trips.map((item, index) => index === existingIndex ? trip : item);
+}
+
 // Get trips for a specific date range
 function getTripsInRange(startDate: Date, endDate: Date): Trip[] {
   const trips = loadTrips();
@@ -80,8 +142,7 @@ export function getTodaysTrips(): Trip[] {
 }
 
 // Calculate current streak
-export function calculateStreak(): number {
-  const trips = loadTrips();
+export function calculateStreak(trips = loadTrips()): number {
   if (trips.length === 0) return 0;
 
   // Sort by date descending

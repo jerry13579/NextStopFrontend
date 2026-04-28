@@ -112,19 +112,19 @@ export function StarredLocations({ locations, onAdd, onRemove, onUpdate, onSelec
   };
 
   return (
-    <div className="bg-white rounded-2xl border border-[#e3ddd5] shadow-sm">
-      <div className="p-6 border-b border-[#e3ddd5]">
+    <div className="bg-white rounded-2xl border border-[var(--color-border)] shadow-sm">
+      <div className="p-6 border-b border-[var(--color-border)]">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <Star className="w-5 h-5 text-[#e8c7a6] fill-[#e8c7a6]" />
-            <h2 className="font-semibold text-[#4a4a4a]">Starred Locations</h2>
+            <Star className="w-5 h-5 text-[var(--color-warning)] fill-[var(--color-warning)]" />
+            <h2 className="font-semibold text-[var(--color-textPrimary)]">Starred Locations</h2>
           </div>
           <button
             onClick={() => {
               setShowAddForm((prev) => !prev);
               if (showAddForm) resetNewLocation();
             }}
-            className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#f0e8e8] text-[#8f4f4f] transition-colors hover:bg-[#e8dfd6]"
+            className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--color-accent)] text-[var(--color-primary)] transition-colors hover:bg-[var(--color-border)]"
             aria-label="Add starred location"
           >
             <Plus className="w-4 h-4" />
@@ -133,14 +133,14 @@ export function StarredLocations({ locations, onAdd, onRemove, onUpdate, onSelec
       </div>
 
       {showAddForm && (
-        <div className="p-6 bg-[#faf8f6] border-b border-[#e3ddd5]">
+        <div className="p-6 bg-[var(--color-background)] border-b border-[var(--color-border)]">
           <div className="space-y-3">
             <div className="relative">
-              <div className="flex items-center gap-2 px-4 py-2 border border-[#d4cec4] rounded-lg bg-white">
+              <div className="flex items-center gap-2 px-4 py-2 border border-[var(--color-border)] rounded-lg bg-white">
                 {isSearching ? (
-                  <Loader2 className="w-5 h-5 text-[#8b8680] animate-spin" />
+                  <Loader2 className="w-5 h-5 text-[var(--color-textMuted)] animate-spin" />
                 ) : (
-                  <Search className="w-5 h-5 text-[#8b8680]" />
+                  <Search className="w-5 h-5 text-[var(--color-textMuted)]" />
                 )}
                 <input
                   type="text"
@@ -156,26 +156,26 @@ export function StarredLocations({ locations, onAdd, onRemove, onUpdate, onSelec
               </div>
 
               {showSuggestions && (searchQuery || searchError) && (
-                <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-[#e3ddd5] rounded-lg shadow-lg max-h-60 overflow-y-auto z-20">
+                <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-[var(--color-border)] rounded-lg shadow-lg max-h-60 overflow-y-auto z-20">
                   {searchResults.map((suggestion) => (
                     <button
                       key={suggestion.id}
                       onClick={() => handleSelectSuggestion(suggestion)}
-                      className="w-full px-4 py-3 text-left hover:bg-[#faf8f6] transition-colors border-b border-[#e3ddd5] last:border-b-0"
+                      className="w-full px-4 py-3 text-left hover:bg-[var(--color-background)] transition-colors border-b border-[var(--color-border)] last:border-b-0"
                     >
                       <div className="flex items-start gap-2">
-                        <MapPin className="w-4 h-4 text-[#8b8680] mt-0.5 flex-shrink-0" />
+                        <MapPin className="w-4 h-4 text-[var(--color-textMuted)] mt-0.5 flex-shrink-0" />
                         <div>
-                          <p className="font-medium text-[#4a4a4a] text-sm">{suggestion.name}</p>
+                          <p className="font-medium text-[var(--color-textPrimary)] text-sm">{suggestion.name}</p>
                           {suggestion.address && (
-                            <p className="text-xs text-[#8b8680] mt-0.5">{suggestion.address}</p>
+                            <p className="text-xs text-[var(--color-textMuted)] mt-0.5">{suggestion.address}</p>
                           )}
                         </div>
                       </div>
                     </button>
                   ))}
                   {!isSearching && searchQuery.trim().length >= 2 && searchResults.length === 0 && (
-                    <div className="px-4 py-3 text-sm text-[#8b8680]">
+                    <div className="px-4 py-3 text-sm text-[var(--color-textMuted)]">
                       {searchError || 'No places found yet. Try a more specific search.'}
                     </div>
                   )}
@@ -184,27 +184,27 @@ export function StarredLocations({ locations, onAdd, onRemove, onUpdate, onSelec
             </div>
 
             {newLocation.name && (
-              <div className="bg-white border border-[#e3ddd5] rounded-lg p-3">
+              <div className="bg-white border border-[var(--color-border)] rounded-lg p-3">
                 <div className="flex items-start gap-3">
                   <button
                     onClick={() => {
                       setEmojiPickerFor('new');
                       setShowEmojiPicker(true);
                     }}
-                    className="text-3xl p-1 rounded-lg hover:bg-gray-100 transition-colors"
+                    className="text-3xl p-1 rounded-lg hover:bg-[var(--color-accent)] transition-colors"
                   >
                     {newLocation.emoji}
                   </button>
                   <div className="flex-1">
-                    <p className="font-semibold text-[#4a4a4a]">{newLocation.name}</p>
-                    <div className="flex items-center gap-1.5 text-sm text-[#8b8680] mt-0.5">
+                    <p className="font-semibold text-[var(--color-textPrimary)]">{newLocation.name}</p>
+                    <div className="flex items-center gap-1.5 text-sm text-[var(--color-textMuted)] mt-0.5">
                       <MapPin className="w-3 h-3" />
                       <span>{newLocation.address}</span>
                     </div>
                   </div>
                   <button
                     onClick={resetNewLocation}
-                    className="p-1 rounded-lg hover:bg-[#f5f1ec] text-[#8b8680]"
+                    className="p-1 rounded-lg hover:bg-[var(--color-accent)] text-[var(--color-textMuted)]"
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -217,14 +217,14 @@ export function StarredLocations({ locations, onAdd, onRemove, onUpdate, onSelec
               value={newLocation.notes}
               onChange={(e) => setNewLocation((prev) => ({ ...prev, notes: e.target.value }))}
               placeholder="Add notes (optional)"
-              className="w-full px-4 py-2 border border-[#e3ddd5] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#d4a5a5] text-sm"
+              className="w-full px-4 py-2 border border-[var(--color-border)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] text-sm"
             />
 
             <div className="flex gap-2">
               <button
                 onClick={handleAdd}
                 disabled={!newLocation.name || !newLocation.address}
-                className="flex-1 px-4 py-2 bg-[#d4a5a5] text-white rounded-lg hover:bg-[#c69595] transition-colors disabled:bg-[#d4cec4] disabled:cursor-not-allowed font-medium"
+                className="flex-1 px-4 py-2 bg-[var(--color-primary)] text-white rounded-lg hover:opacity-90 transition-opacity disabled:bg-[var(--color-border)] disabled:cursor-not-allowed font-medium"
               >
                 Add Location
               </button>
@@ -233,7 +233,7 @@ export function StarredLocations({ locations, onAdd, onRemove, onUpdate, onSelec
                   setShowAddForm(false);
                   resetNewLocation();
                 }}
-                className="px-4 py-2 bg-[#ede9e4] text-[#6a6a6a] rounded-lg hover:bg-[#e3ddd5] transition-colors font-medium"
+                className="px-4 py-2 bg-[var(--color-accent)] text-[var(--color-textSecondary)] rounded-lg hover:bg-[var(--color-border)] transition-colors font-medium"
               >
                 Cancel
               </button>
@@ -242,12 +242,12 @@ export function StarredLocations({ locations, onAdd, onRemove, onUpdate, onSelec
         </div>
       )}
 
-      <div className="divide-y divide-[#e3ddd5]">
+      <div className="divide-y divide-[var(--color-border)]">
         {locations.length === 0 ? (
           <div className="p-8 text-center">
-            <MapPin className="w-12 h-12 text-[#d4cec4] mx-auto mb-3" />
-            <p className="text-[#8b8680] mb-1">No starred locations yet</p>
-            <p className="text-sm text-[#aba59a]">
+            <MapPin className="w-12 h-12 text-[var(--color-border)] mx-auto mb-3" />
+            <p className="text-[var(--color-textMuted)] mb-1">No starred locations yet</p>
+            <p className="text-sm text-[var(--color-textMuted)]">
               Save any destination you want quick access to later.
             </p>
           </div>
@@ -267,9 +267,9 @@ export function StarredLocations({ locations, onAdd, onRemove, onUpdate, onSelec
               }}
               role={onSelect && editingId !== location.id ? 'button' : undefined}
               tabIndex={onSelect && editingId !== location.id ? 0 : undefined}
-              className={`p-4 hover:bg-[#faf8f6] transition-colors ${
-                editingId === location.id ? 'bg-[#f5f1ec]' : ''
-              } ${onSelect && editingId !== location.id ? 'cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#d4a5a5] focus:ring-inset' : ''}`}
+              className={`p-4 hover:bg-[var(--color-background)] transition-colors ${
+                editingId === location.id ? 'bg-[var(--color-accent)]' : ''
+              } ${onSelect && editingId !== location.id ? 'cursor-pointer focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)] focus:ring-inset' : ''}`}
             >
               <div className="flex items-start gap-3">
                 <button
@@ -278,7 +278,7 @@ export function StarredLocations({ locations, onAdd, onRemove, onUpdate, onSelec
                     setEmojiPickerFor(location.id);
                     setShowEmojiPicker(true);
                   }}
-                  className="text-2xl p-1 rounded-lg hover:bg-[#ede9e4] transition-colors"
+                  className="text-2xl p-1 rounded-lg hover:bg-[var(--color-accent)] transition-colors"
                 >
                   {location.emoji}
                 </button>
@@ -289,37 +289,37 @@ export function StarredLocations({ locations, onAdd, onRemove, onUpdate, onSelec
                         type="text"
                         value={location.name}
                         onChange={(e) => onUpdate(location.id, { name: e.target.value })}
-                        className="w-full px-3 py-1.5 border border-[#e3ddd5] rounded-lg text-sm"
+                        className="w-full px-3 py-1.5 border border-[var(--color-border)] rounded-lg text-sm"
                       />
                       <input
                         type="text"
                         value={location.address}
                         onChange={(e) => onUpdate(location.id, { address: e.target.value })}
-                        className="w-full px-3 py-1.5 border border-[#e3ddd5] rounded-lg text-sm"
+                        className="w-full px-3 py-1.5 border border-[var(--color-border)] rounded-lg text-sm"
                       />
                       <input
                         type="text"
                         value={location.notes || ''}
                         onChange={(e) => onUpdate(location.id, { notes: e.target.value })}
                         placeholder="Notes (optional)"
-                        className="w-full px-3 py-1.5 border border-[#e3ddd5] rounded-lg text-sm"
+                        className="w-full px-3 py-1.5 border border-[var(--color-border)] rounded-lg text-sm"
                       />
                       <button
                         onClick={() => setEditingId(null)}
-                        className="px-3 py-1.5 bg-[#d4a5a5] text-white rounded-lg text-sm font-medium"
+                        className="px-3 py-1.5 bg-[var(--color-primary)] text-white rounded-lg text-sm font-medium"
                       >
                         Done
                       </button>
                     </div>
                   ) : (
                     <>
-                      <h3 className="font-semibold text-[#4a4a4a]">{location.name}</h3>
-                      <div className="flex items-center gap-1.5 text-sm text-[#8b8680] mt-0.5">
+                      <h3 className="font-semibold text-[var(--color-textPrimary)]">{location.name}</h3>
+                      <div className="flex items-center gap-1.5 text-sm text-[var(--color-textMuted)] mt-0.5">
                         <MapPin className="w-3 h-3" />
                         <span>{location.address}</span>
                       </div>
                       {location.notes && (
-                        <p className="text-sm text-[#8b8680] mt-1">{location.notes}</p>
+                        <p className="text-sm text-[var(--color-textMuted)] mt-1">{location.notes}</p>
                       )}
                     </>
                   )}
@@ -330,7 +330,7 @@ export function StarredLocations({ locations, onAdd, onRemove, onUpdate, onSelec
                       event.stopPropagation();
                       setEditingId(editingId === location.id ? null : location.id);
                     }}
-                    className="p-1.5 rounded-lg hover:bg-[#ede9e4] text-[#8b8680] hover:text-[#b8c5d6] transition-colors"
+                    className="p-1.5 rounded-lg hover:bg-[var(--color-accent)] text-[var(--color-textMuted)] hover:text-[var(--color-secondary)] transition-colors"
                   >
                     <Edit2 className="w-4 h-4" />
                   </button>
@@ -339,7 +339,7 @@ export function StarredLocations({ locations, onAdd, onRemove, onUpdate, onSelec
                       event.stopPropagation();
                       onRemove(location.id);
                     }}
-                    className="p-1.5 rounded-lg hover:bg-[#ffeaea] text-[#8b8680] hover:text-[#e57373] transition-colors"
+                    className="p-1.5 rounded-lg hover:bg-[var(--color-dangerSurface)] text-[var(--color-textMuted)] hover:text-[var(--color-danger)] transition-colors"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
@@ -352,6 +352,11 @@ export function StarredLocations({ locations, onAdd, onRemove, onUpdate, onSelec
 
       {showEmojiPicker && (
         <EmojiPicker
+          currentEmoji={
+            emojiPickerFor === 'new'
+              ? newLocation.emoji
+              : locations.find((location) => location.id === emojiPickerFor)?.emoji || '📍'
+          }
           onSelect={(emoji) => {
             handleEmojiSelect(emojiPickerFor, emoji);
             setShowEmojiPicker(false);

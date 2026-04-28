@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Bell, BellOff, Clock, MapPin, Bus, X, Check } from 'lucide-react';
+import { Bell, BellOff, Clock, MapPin, Bus, X } from 'lucide-react';
 
 interface Class {
   id: string;
@@ -32,9 +32,7 @@ interface Notification {
   type: 'leave-now' | 'bus-arriving' | 'running-late';
   title: string;
   message: string;
-  timestamp: Date;
   busNumber?: string;
-  minutesToLeave?: number;
 }
 
 export function SmartNotifications({
@@ -81,9 +79,7 @@ export function SmartNotifications({
             type: 'leave-now',
             title: `🎯 Get ready to leave in ${minutesToLeave} min`,
             message: `Head to the bus stop soon to catch the ${bestBus.routeNumber} to ${nextClass.buildingCode}`,
-            timestamp: new Date(),
             busNumber: bestBus.routeNumber,
-            minutesToLeave
           });
         }
       }
@@ -97,9 +93,7 @@ export function SmartNotifications({
             type: 'leave-now',
             title: `🚨 Leave NOW for ${nextClass.code}`,
             message: `Walk to the bus stop now to catch the ${bestBus.routeNumber}. Arrives in ${bestBus.eta} min.`,
-            timestamp: new Date(),
             busNumber: bestBus.routeNumber,
-            minutesToLeave: 0
           });
         }
       }
@@ -113,7 +107,6 @@ export function SmartNotifications({
             type: 'bus-arriving',
             title: `🚌 Bus ${bestBus.routeNumber} arriving in ${bestBus.eta} min`,
             message: `Be ready at the bus stop. Total travel time: ${totalTravelTime} min to ${nextClass.buildingCode}`,
-            timestamp: new Date(),
             busNumber: bestBus.routeNumber
           });
         }
@@ -128,7 +121,6 @@ export function SmartNotifications({
             type: 'running-late',
             title: `⚠️ You might be late to ${nextClass.code}`,
             message: `Consider walking directly (faster) or inform your professor. Class starts in ${minutesUntilClass} min.`,
-            timestamp: new Date()
           });
         }
       }
@@ -150,13 +142,13 @@ export function SmartNotifications({
   const getNotificationColor = (type: Notification['type']) => {
     switch (type) {
       case 'leave-now':
-        return 'from-orange-500 to-red-500';
+        return 'from-[var(--color-warning)] to-[var(--color-danger)]';
       case 'bus-arriving':
-        return 'from-blue-500 to-indigo-500';
+        return 'from-[var(--color-info)] to-[var(--color-primary)]';
       case 'running-late':
-        return 'from-red-600 to-pink-600';
+        return 'from-[var(--color-danger)] to-[var(--color-primary)]';
       default:
-        return 'from-gray-500 to-gray-600';
+        return 'from-[var(--color-textMuted)] to-[var(--color-textSecondary)]';
     }
   };
 
@@ -201,12 +193,12 @@ export function SmartNotifications({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                enabled ? 'bg-green-100' : 'bg-gray-100'
+                enabled ? 'bg-[var(--color-successSurface)]' : 'bg-[var(--color-accent)]'
               }`}>
                 {enabled ? (
-                  <Bell className="w-5 h-5 text-green-600" />
+                  <Bell className="w-5 h-5 text-[var(--color-success)]" />
                 ) : (
-                  <BellOff className="w-5 h-5 text-gray-400" />
+                  <BellOff className="w-5 h-5 text-[var(--color-textMuted)]" />
                 )}
               </div>
               <div>
@@ -224,8 +216,8 @@ export function SmartNotifications({
               onClick={() => onToggle(!enabled)}
               className={`px-4 py-2 rounded-xl font-semibold transition-all ${
                 enabled
-                  ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  ? 'bg-[var(--color-successSurface)] text-[var(--color-success)] hover:opacity-90'
+                  : 'bg-[var(--color-accent)] text-[var(--color-textSecondary)] hover:bg-[var(--color-border)]'
               }`}
             >
               {enabled ? 'On' : 'Off'}
