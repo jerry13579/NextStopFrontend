@@ -66,6 +66,7 @@ interface SettingsSectionProps {
   onToggleSmartNotifications?: (enabled: boolean) => void;
   onImportCalendar?: (file: File) => Promise<number>;
   onAddClass?: (data: { code: string; name: string; sections: SectionForm[] }) => void;
+  onTestNotification?: () => void;
   onSaveMeetingTime?: (meetingIds: string[], startHHMM: string, endHHMM: string) => void;
   homeAddress?: SpecialPlace | null;
   studySpot?: SpecialPlace | null;
@@ -98,6 +99,7 @@ export function SettingsSection({
   onAddClass,
   onReplaceClass,
   onSaveMeetingTime,
+  onTestNotification,
   homeAddress,
   studySpot,
   onSetHomeAddress,
@@ -572,6 +574,15 @@ export function SettingsSection({
             </label>
           </div>
         </div>
+        {onTestNotification && (
+          <button
+            onClick={onTestNotification}
+            className="mt-4 w-full flex items-center justify-center gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-4 py-3 text-sm font-medium text-[var(--color-textSecondary)] hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] transition-colors"
+          >
+            <Bell className="w-4 h-4" />
+            Send test notification (fires in 5 sec)
+          </button>
+        )}
         <div className="mt-4">
           <SmartNotifications
             nextClass={nextClassForAlerts ? {

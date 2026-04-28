@@ -9,6 +9,7 @@ import { SemesterWrapped } from './components/SemesterWrapped';
 import { BusMap } from './components/BusMap';
 import { StarredLocations, type StarredLocation } from './components/StarredLocations';
 import { BoardingReminders } from './components/BoardingReminders';
+import { CreditCard, AlertTriangle, Heart } from 'lucide-react';
 import { LoginPage } from './components/LoginPage';
 import {
   API_BASE_URL,
@@ -36,6 +37,7 @@ import { getThemeById, applyTheme, getCustomTheme, ColorTheme } from './utils/co
 import {
   requestNotificationPermission,
   scheduleCommuteNotifications,
+  scheduleLeaveByNotification,
   setCommuteNotificationTapHandler,
 } from './utils/notifications';
 import nextStopLogo from '../imports/nextstop-logo-full.png';
@@ -929,6 +931,7 @@ function BusCard({ bus, nextClass, currentTime, onShowReminders }: {
   currentTime: Date;
   onShowReminders: () => void;
 }) {
+  const [aiExpanded, setAiExpanded] = useState(false);
   const recommendation = getRecommendation(bus, nextClass, currentTime);
 
   const noise = useMemo(() => Math.round(Math.random() * 10 - 5), [bus.id]);
@@ -1010,47 +1013,36 @@ function BusCard({ bus, nextClass, currentTime, onShowReminders }: {
         </div>
       </div>
 
-      {/* Recommendation */}
-      <div className={`rounded-xl p-4 border-2 ${recommendation.color}`}>
-        <div className="flex items-start gap-3">
-          <TrendingUp className="w-5 h-5 mt-0.5 flex-shrink-0"
-            style={{
-              color: recommendation.willBeOnTime && recommendation.action === 'wait' ? '#16a34a' :
-                     !recommendation.willBeOnTime ? '#dc2626' : '#ca8a04'
-            }}
-          />
-          <div className="flex-1">
-            <div className="flex items-center gap-2 mb-1">
-              <p className="font-semibold text-[var(--color-textPrimary)]">
-                {recommendation.action === 'wait' ? 'Wait here' :
-                 recommendation.action === 'walk' ? 'Consider walking' :
-                 recommendation.action === 'walk-to-class' ? 'Walk to class' : 'Find alternative'}
-              </p>
-              {nextClass && (
-                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                  recommendation.willBeOnTime ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                }`}>
-                  {recommendation.willBeOnTime ? 'On time' : 'Will be late'}
-                </span>
-              )}
+      {/* AI Analysis bubble — replaces the recommendation card */}
+      <div className="flex justify-end">
+        {aiExpanded ? (
+          <div className="w-full rounded-xl bg-[var(--color-accent)] border border-[var(--color-border)] p-3">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-start gap-2">
+                <span className="text-xs font-semibold text-[var(--color-textSecondary)] shrink-0 mt-0.5">✨</span>
+                <p className="text-sm text-[var(--color-textMuted)]">
+                  {displayCapacity !== null ? getAiAnalysisMessage(displayCapacity) : recommendation.message}
+                </p>
+              </div>
+              <button
+                onClick={() => setAiExpanded(false)}
+                className="shrink-0 text-[var(--color-textMuted)] hover:text-[var(--color-textPrimary)] transition-colors"
+                aria-label="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
-            <p className="text-sm text-[var(--color-textSecondary)]">{recommendation.message}</p>
-            {(recommendation.action === 'walk' || recommendation.action === 'walk-to-class') && (
-              <p className="text-xs text-[var(--color-textMuted)] mt-2">Walking distance: {bus.distance} km • {bus.walkTime} min</p>
-            )}
           </div>
-        </div>
+        ) : (
+          <button
+            onClick={() => setAiExpanded(true)}
+            className="flex items-center gap-1.5 rounded-full bg-[var(--color-accent)] border border-[var(--color-border)] px-3 py-1.5 text-xs font-medium text-[var(--color-textSecondary)] hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] transition-colors"
+          >
+            <span>✨</span>
+            AI Analysis
+          </button>
+        )}
       </div>
-
-      {/* AI Analysis */}
-      {displayCapacity !== null && (
-        <div className="mt-3 rounded-xl p-4 bg-[var(--color-accent)] border border-[var(--color-border)]">
-          <div className="flex items-start gap-2">
-            <span className="text-sm font-semibold text-[var(--color-textSecondary)] shrink-0">AI Analysis</span>
-            <p className="text-sm text-[var(--color-textMuted)]">{getAiAnalysisMessage(displayCapacity)}</p>
-          </div>
-        </div>
-      )}
 
       {/* Boarding Reminders Button */}
       {bus.eta <= 5 && (
@@ -1149,6 +1141,7 @@ export default function App() {
   // Boarding reminders state
   const [showBoardingReminders, setShowBoardingReminders] = useState(false);
   const [selectedBusForReminders, setSelectedBusForReminders] = useState<string | null>(null);
+  const [boardingRemindersExpanded, setBoardingRemindersExpanded] = useState(false);
   const [routeError, setRouteError] = useState<string | null>(null);
   const [allBuses, setAllBuses] = useState<BusRoute[]>([]);
   const [selectedBusId, setSelectedBusId] = useState<string | null>(null);
@@ -1168,13 +1161,14 @@ export default function App() {
   const [directWalkTimeMinutes, setDirectWalkTimeMinutes] = useState<number | null>(null);
   const [directWalkRoute, setDirectWalkRoute] = useState<ApiBusRoute['walk_to_stop'] | null>(null);
   const [walkingDirectionsDismissed, setWalkingDirectionsDismissed] = useState(false);
-  const [dismissedAnalysisBusIds, setDismissedAnalysisBusIds] = useState<Set<string>>(new Set());
+  const [expandedAnalysisBusIds, setExpandedAnalysisBusIds] = useState<Set<string>>(new Set());
   const [isRouteLoading, setIsRouteLoading] = useState(false);
   const [serviceAlertTip, setServiceAlertTip] = useState<string | null>(null);
   const [homeScreenBuses, setHomeScreenBuses] = useState<BusRoute[]>([]);
   const [homeScreenDirectWalkMinutes, setHomeScreenDirectWalkMinutes] = useState<number | null>(null);
   const [homeRouteStatus, setHomeRouteStatus] = useState<HomeRouteStatus | null>(null);
   const [homeRouteBestBus, setHomeRouteBestBus] = useState<{ routeNumber: string; capacity: number | null; delay: number } | null>(null);
+  const [homeRouteLoading, setHomeRouteLoading] = useState(false);
 
   // Smart notifications state
   const [notificationsEnabled, setNotificationsEnabled] = useState(() => {
@@ -1678,31 +1672,71 @@ export default function App() {
   const nextClass = schedule.find(cls => cls.startTime > currentTime) || null;
   const nextClassToday = schedule.find((cls) => cls.startTime > currentTime && isSameLocalDay(cls.startTime, currentTime)) || null;
 
-  // Home widget uses only scheduled commute previews, never live route data.
+  // Home widget: live route planning for today's next class, same logic as the routes tab.
   useEffect(() => {
     const location = nextClassToday?.location;
-    if (!location) {
+    if (!location || !routePlanningLocation) {
       setHomeScreenBuses([]);
       setHomeScreenDirectWalkMinutes(null);
       setHomeRouteStatus(null);
       setHomeRouteBestBus(null);
+      setHomeRouteLoading(false);
       return;
     }
 
-    const cached = loadHomeRouteCache(location);
-    if (cached) {
-      setHomeScreenBuses(cached.buses);
-      setHomeScreenDirectWalkMinutes(cached.directWalkMinutes);
-      setHomeRouteStatus('schedule');
-      setHomeRouteBestBus(cached.buses[0] ? { routeNumber: cached.buses[0].routeNumber, capacity: null, delay: 0 } : null);
-      return;
+    let ignore = false;
+    let timerId: number | undefined;
+    const controller = new AbortController();
+
+    async function fetchHomeRoute() {
+      setHomeRouteLoading(true);
+      try {
+        const plan = await fetchPlanTrip(
+          'Current location',
+          location!,
+          routePlanningLocation,
+          null,
+          controller.signal,
+        );
+        if (ignore) return;
+
+        const normalized = plan.available_buses.map(normalizeApiBus);
+        const directWalk = plan.direct_walk?.duration_minutes ?? null;
+        const buses = normalized
+          .filter((bus) => busReducesWalking(bus, directWalk))
+          .sort((a, b) => (a.totalTripTimeMinutes - b.totalTripTimeMinutes) || (a.eta - b.eta));
+
+        setHomeScreenBuses(buses);
+        setHomeScreenDirectWalkMinutes(directWalk);
+        setHomeRouteStatus(plan.source === 'live' ? 'live' : 'schedule');
+        const best = buses[0] ?? null;
+        setHomeRouteBestBus(best ? { routeNumber: best.routeNumber, capacity: best.capacity, delay: best.delay } : null);
+        setHomeRouteLoading(false);
+
+        // Schedule notification 5 min before leave_by
+        if (best && nextClassToday) {
+          const leaveBy = best.departureTime
+            ? new Date(new Date(best.departureTime).getTime() - best.walkTime * 60 * 1000)
+            : new Date(nextClassToday.startTime.getTime() - best.totalTripTimeMinutes * 60 * 1000);
+          scheduleLeaveByNotification(leaveBy, nextClassToday.code, location!, best.routeNumber).catch(() => {});
+        }
+
+        timerId = window.setTimeout(fetchHomeRoute, ROUTE_OPTIONS_REFRESH_MS);
+      } catch {
+        if (ignore) return;
+        setHomeRouteLoading(false);
+        timerId = window.setTimeout(fetchHomeRoute, ROUTE_OPTIONS_REFRESH_MS);
+      }
     }
 
-    setHomeScreenBuses([]);
-    setHomeScreenDirectWalkMinutes(null);
-    setHomeRouteStatus(null);
-    setHomeRouteBestBus(null);
-  }, [nextClassToday?.id, nextClassToday?.location]);
+    fetchHomeRoute();
+
+    return () => {
+      ignore = true;
+      controller.abort();
+      if (timerId) window.clearTimeout(timerId);
+    };
+  }, [nextClassToday?.id, nextClassToday?.location, routePlanningLocation]);
 
   useEffect(() => {
     const destination = routeDestination;
@@ -1916,12 +1950,23 @@ export default function App() {
   const buses = getRelevantBuses();
   const visibleBuses = useMemo<BusRoute[]>(() =>
     allBuses
-      .filter((bus: BusRoute) => busReducesWalking(bus, directWalkTimeMinutes))
+      .filter((bus: BusRoute) => {
+        if (!busReducesWalking(bus, directWalkTimeMinutes)) return false;
+        // Drop buses going the wrong direction: the alighting stop must be closer
+        // to the destination than the boarding stop is.
+        if (destinationPosition && bus.apiBus?.alighting_stop) {
+          const ref = bus.apiBus.boarding_stop ?? userPosition;
+          const d = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) =>
+            (a.lat - b.lat) ** 2 + (a.lng - b.lng) ** 2;
+          if (d(bus.apiBus.alighting_stop, destinationPosition) >= d(ref, destinationPosition)) return false;
+        }
+        return true;
+      })
       .sort((a: BusRoute, b: BusRoute) => (
         (a.totalTripTimeMinutes - b.totalTripTimeMinutes) ||
         (a.eta - b.eta)
       )),
-    [allBuses, directWalkTimeMinutes],
+    [allBuses, directWalkTimeMinutes, destinationPosition],
   );
   const selectedBus = selectedBusId === WALK_ROUTE_OPTION_ID
     ? null
@@ -2199,6 +2244,7 @@ export default function App() {
             homeRouteMetrics={homeRouteMetrics}
             homeRouteStatus={homeRouteStatus}
             homeRouteBestBus={homeRouteBestBus}
+            homeRouteLoading={homeRouteLoading}
             todayTips={todayTips}
             starredContent={
               <>
@@ -2325,6 +2371,36 @@ export default function App() {
             <div className="absolute bottom-20 left-0 right-0 z-20">
               {isInAppNavigating && selectedBus ? (
                 <div className="pb-4">
+                  {/* Boarding reminders: shown above the scroll row when expanded on wait_for_bus */}
+                  {boardingRemindersExpanded && activeNavigationStepId === 'wait_for_bus' && (
+                    <div className="mx-4 mb-2 rounded-2xl border border-[var(--color-border)] bg-white p-4 shadow-xl">
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-textMuted)]">🚌 Boarding Reminders</p>
+                        <button
+                          onClick={() => setBoardingRemindersExpanded(false)}
+                          className="rounded-lg p-1 text-[var(--color-textMuted)] hover:bg-[var(--color-accent)] transition-colors"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                      <div className="space-y-3">
+                        {[
+                          { icon: <CreditCard className="w-4 h-4 text-[var(--color-primary)] shrink-0 mt-0.5" />, title: 'Have your Clipper card ready', description: 'Prepare your fare before boarding to speed up the process' },
+                          { icon: <AlertTriangle className="w-4 h-4 text-yellow-600 shrink-0 mt-0.5" />, title: 'Watch out for the bus', description: 'Stay away from the curb until the bus comes to a complete stop' },
+                          { icon: <Users className="w-4 h-4 text-[var(--color-secondary)] shrink-0 mt-0.5" />, title: 'Let passengers exit first', description: 'Allow everyone to leave before boarding. Watch for wheelchairs' },
+                          { icon: <Heart className="w-4 h-4 text-[var(--color-primary)] shrink-0 mt-0.5" />, title: 'Offer seats to those who need them', description: 'Priority seating for seniors, pregnant individuals, and people with disabilities' },
+                        ].map((reminder) => (
+                          <div key={reminder.title} className="flex items-start gap-2.5">
+                            {reminder.icon}
+                            <div>
+                              <p className="text-xs font-semibold text-[var(--color-textPrimary)]">{reminder.title}</p>
+                              <p className="text-[11px] text-[var(--color-textMuted)] mt-0.5">{reminder.description}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <div
                     ref={navigationCarouselRef}
                     className="flex snap-x snap-mandatory gap-3 overflow-x-auto px-[calc((100vw-84vw)/2)] pb-3 [scroll-padding-inline:calc((100vw-84vw)/2)]"
@@ -2334,13 +2410,9 @@ export default function App() {
                       return (
                         <div
                           key={step.id}
-                          ref={(node) => {
-                            navigationPanelRefs.current[step.id] = node;
-                          }}
-                          className={`min-w-[84vw] max-w-[84vw] snap-center rounded-2xl border bg-white/95 p-3 shadow-xl transition ${
-                            isCurrent
-                              ? 'border-[var(--color-border)] bg-white'
-                              : 'border-[var(--color-border)] opacity-75'
+                          ref={(node) => { navigationPanelRefs.current[step.id] = node; }}
+                          className={`min-w-[84vw] max-w-[84vw] snap-center rounded-2xl border bg-white p-3 shadow-xl transition ${
+                            isCurrent ? 'border-[var(--color-primary)]' : 'border-[var(--color-border)]'
                           }`}
                         >
                           <div className="flex items-start justify-between gap-2">
@@ -2348,9 +2420,20 @@ export default function App() {
                               <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--color-textMuted)]">{step.stepType}</p>
                               <p className="mt-0.5 text-sm font-semibold leading-tight text-[var(--color-textPrimary)]">{step.title}</p>
                             </div>
-                            <div className="rounded-xl bg-[var(--color-primary)] px-2.5 py-1.5 text-right text-white shadow-sm">
-                              <p className="text-[11px] font-semibold leading-none">{step.topRightMetric}</p>
-                              <p className="mt-1 text-[9px] uppercase tracking-[0.12em] text-sky-100">{step.topRightLabel}</p>
+                            <div className="flex flex-col items-end gap-1.5">
+                              <div className="rounded-xl bg-[var(--color-primary)] px-2.5 py-1.5 text-right text-white shadow-sm">
+                                <p className="text-[11px] font-semibold leading-none">{step.topRightMetric}</p>
+                                <p className="mt-1 text-[9px] uppercase tracking-[0.12em] text-sky-100">{step.topRightLabel}</p>
+                              </div>
+                              {step.id === 'wait_for_bus' && !boardingRemindersExpanded && (
+                                <button
+                                  onClick={() => setBoardingRemindersExpanded(true)}
+                                  className="flex items-center gap-1 rounded-full border border-[var(--color-border)] bg-white px-2.5 py-1 text-[10px] font-medium text-[var(--color-textSecondary)] shadow-sm hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] transition-colors"
+                                >
+                                  <span>🚌</span>
+                                  Boarding tips
+                                </button>
+                              )}
                             </div>
                           </div>
                           <p className="mt-2 text-xs leading-relaxed text-[var(--color-textSecondary)]">{step.instruction}</p>
@@ -2468,18 +2551,32 @@ export default function App() {
                     ref={(node) => { routeOptionRefs.current[bus.id] = node; }}
                     className="flex min-w-[84vw] max-w-[84vw] snap-center flex-col"
                   >
-                    {displayedOccupancy !== null && displayedOccupancy !== undefined && !dismissedAnalysisBusIds.has(bus.id) && (
+                    {expandedAnalysisBusIds.has(bus.id) ? (
                       <div className="mb-2 flex items-start gap-3 rounded-2xl border border-[var(--color-border)] bg-white/95 px-4 py-3 shadow-xl backdrop-blur-sm">
                         <div className="flex-1">
-                          <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-textMuted)] mb-1">AI Analysis</p>
-                          <p className="text-xs leading-relaxed text-[var(--color-textSecondary)]">{getAiAnalysisMessage(displayedOccupancy, bus.id)}</p>
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-textMuted)] mb-1">✨ AI Analysis</p>
+                          <p className="text-xs leading-relaxed text-[var(--color-textSecondary)]">
+                            {displayedOccupancy !== null && displayedOccupancy !== undefined
+                              ? getAiAnalysisMessage(displayedOccupancy, bus.id)
+                              : 'No live occupancy data for this bus right now.'}
+                          </p>
                         </div>
                         <button
-                          onClick={(e) => { e.stopPropagation(); setDismissedAnalysisBusIds(prev => new Set([...prev, bus.id])); }}
+                          onClick={(e) => { e.stopPropagation(); setExpandedAnalysisBusIds(prev => { const next = new Set(prev); next.delete(bus.id); return next; }); }}
                           className="shrink-0 rounded-lg p-1 text-[var(--color-textMuted)] hover:bg-[var(--color-accent)]"
-                          aria-label="Dismiss AI analysis"
+                          aria-label="Close AI analysis"
                         >
                           <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="mb-2 flex justify-end">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setExpandedAnalysisBusIds(prev => new Set([...prev, bus.id])); }}
+                          className="flex items-center gap-1.5 rounded-full border border-[var(--color-border)] bg-white/95 px-3 py-1.5 text-[10px] font-medium text-[var(--color-textSecondary)] shadow backdrop-blur-sm hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] transition-colors"
+                        >
+                          <span>✨</span>
+                          AI Analysis
                         </button>
                       </div>
                     )}
@@ -2626,6 +2723,21 @@ export default function App() {
             nextClassForAlerts={nextClass}
             busesForAlerts={buses}
             currentTime={currentTime}
+            onTestNotification={nextClassToday ? () => {
+              const classCode = nextClassToday.code;
+              const leaveBy = homeRouteMetrics?.leaveByValue ?? '—';
+              import('@capacitor/local-notifications').then(({ LocalNotifications }) => {
+                LocalNotifications.schedule({
+                  notifications: [{
+                    id: 99999,
+                    title: `Get ready to head to ${classCode}`,
+                    body: `Leave by ${leaveBy} to catch the bus`,
+                    schedule: { at: new Date(Date.now() + 5000) },
+                    extra: { type: 'test' },
+                  }],
+                });
+              });
+            } : undefined}
           />
         );
 

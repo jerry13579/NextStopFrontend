@@ -1,6 +1,49 @@
 import { LocalNotifications } from '@capacitor/local-notifications';
 import type { CalendarCommutePreview } from './api';
 
+// Stable ID so we always cancel/replace the same slot — no accumulation.
+const LIVE_ROUTE_NOTIFICATION_ID = 88001;
+
+let _lastFireAt: number | null = null;
+
+export async function scheduleLeaveByNotification(
+  leaveBy: Date,
+  classCode: string,
+  destination: string,
+  routeNumber: string,
+): Promise<void> {
+  try {
+    const fireAt = new Date(leaveBy.getTime() - 5 * 60 * 1000);
+    const now = Date.now();
+
+    // Don't touch the notification if it's due to fire within the next 2 minutes —
+    // cancelling it now would mean it never fires.
+    if (fireAt.getTime() - now < 2 * 60 * 1000) return;
+
+    // Skip rescheduling if the fire time hasn't shifted by more than 30 seconds.
+    if (_lastFireAt !== null && Math.abs(fireAt.getTime() - _lastFireAt) < 30_000) return;
+
+    // Cancel any previously scheduled live-route notification.
+    await LocalNotifications.cancel({ notifications: [{ id: LIVE_ROUTE_NOTIFICATION_ID }] });
+
+    if (fireAt.getTime() <= now) return;
+
+    await LocalNotifications.schedule({
+      notifications: [{
+        id: LIVE_ROUTE_NOTIFICATION_ID,
+        title: `Leave in 5 min for ${classCode}`,
+        body: `Take Route ${routeNumber} · Leave by ${leaveBy.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`,
+        schedule: { at: fireAt, allowWhileIdle: true },
+        extra: { type: 'live-route', destination, classCode },
+      }],
+    });
+
+    _lastFireAt = fireAt.getTime();
+  } catch {
+    // no-op in browser / when permissions denied
+  }
+}
+
 type TapHandler = (destination: string) => void;
 
 let _tapHandler: TapHandler | null = null;

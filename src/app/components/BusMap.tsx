@@ -143,14 +143,18 @@ function relevantRouteSegment(
   return segment.length > 1 ? segment : [];
 }
 
-function createBusIcon() {
+function createBusIcon(highlighted = false) {
+  const ring = highlighted ? '<circle cx="20" cy="20" r="19" fill="none" stroke="#facc15" stroke-width="2.5"/>' : '';
+  const fill = highlighted ? '#1e40af' : '#1d4ed8';
   const svg = encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40"><circle cx="20" cy="20" r="18" fill="#1d4ed8"/><rect x="9" y="10" width="22" height="16" rx="4" fill="#ffffff"/><rect x="12" y="13" width="16" height="7" rx="2" fill="#93c5fd"/><circle cx="15" cy="27" r="2.2" fill="#111827"/><circle cx="25" cy="27" r="2.2" fill="#111827"/></svg>'
+    `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">${ring}<circle cx="20" cy="20" r="17" fill="${fill}"/><rect x="9" y="10" width="22" height="16" rx="4" fill="#ffffff"/><rect x="12" y="13" width="16" height="7" rx="2" fill="#93c5fd"/><circle cx="15" cy="27" r="2.2" fill="#111827"/><circle cx="25" cy="27" r="2.2" fill="#111827"/></svg>`
   );
+  const size = highlighted ? 40 : 32;
+  const anchor = highlighted ? 20 : 16;
   return {
     url: `data:image/svg+xml;charset=UTF-8,${svg}`,
-    scaledSize: new window.google!.maps.Size(32, 32),
-    anchor: new window.google!.maps.Point(16, 16),
+    scaledSize: new window.google!.maps.Size(size, size),
+    anchor: new window.google!.maps.Point(anchor, anchor),
   };
 }
 
@@ -358,8 +362,8 @@ export function BusMap({
           map,
           position: toLatLng(selectedBus.bus_position),
           title: `${selectedBus.route_number} to ${selectedBus.trip_headsign || 'Destination'}`,
-          icon: createBusIcon(),
-          zIndex: 1200,
+          icon: createBusIcon(true),
+          zIndex: 1300,
         });
       } else {
         busMarkerRef.current.setPosition(toLatLng(selectedBus.bus_position));
@@ -373,12 +377,14 @@ export function BusMap({
     routeVehicleMarkersRef.current.forEach((marker) => marker.setMap(null));
     routeVehicleMarkersRef.current = [];
     routeVehicles.forEach((vehicle) => {
+      const isCrowdMetricsBus = vehicle.vehicle_id === selectedBus?.vehicle_id ||
+        (selectedVehicle != null && vehicle.vehicle_id === selectedVehicle.vehicle_id);
       const marker = new window.google.maps.Marker({
         map,
         position: { lat: vehicle.lat, lng: vehicle.lng },
         title: `${selectedBus?.route_short_name || selectedBus?.route_number || 'Bus'} to ${vehicle.headsign || 'Destination'}`,
-        icon: createBusIcon(),
-        zIndex: 1200,
+        icon: createBusIcon(isCrowdMetricsBus),
+        zIndex: isCrowdMetricsBus ? 1300 : 1200,
       });
       marker.addListener('click', () => {
         const lines = [

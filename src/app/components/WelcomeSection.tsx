@@ -1,4 +1,4 @@
-import { Calendar, MapPin, Clock, X, Sparkles, Navigation2, RefreshCw, Radio, Home, BookOpen, ArrowRight } from 'lucide-react';
+import { Calendar, MapPin, Clock, X, Sparkles, Navigation2, RefreshCw, Radio, Home, BookOpen, ArrowRight, Loader2 } from 'lucide-react';
 import { ReactNode } from 'react';
 
 interface Trip {
@@ -59,6 +59,7 @@ interface WelcomeSectionProps {
   onNavigateToStudySpot?: () => void;
   onNavigateToSettings?: () => void;
   todayTips: string[];
+  homeRouteLoading?: boolean;
 }
 
 export function WelcomeSection({
@@ -83,6 +84,7 @@ export function WelcomeSection({
   onNavigateToStudySpot,
   onNavigateToSettings,
   todayTips,
+  homeRouteLoading = false,
 }: WelcomeSectionProps) {
   const dayOfWeek = currentTime.toLocaleString('default', { weekday: 'long' });
   const weekendGreetingMessage = (() => {
@@ -98,7 +100,7 @@ export function WelcomeSection({
   const hasClassesRemainingToday = Boolean(nextClass);
   const showImportCard = !hasImportedSchedule;
   const showHomeStudyShortcut = !homeAddress && !studySpot;
-  const showWidgets = hasClassesRemainingToday && homeRouteMetrics;
+  const showWidgets = hasClassesRemainingToday;
   const streakCount = trips.filter((trip) => trip.wasOnTime).length;
 
   const todaysTrips = trips.filter((trip) => {
@@ -196,7 +198,7 @@ export function WelcomeSection({
                     <div className="w-8 h-8 bg-[var(--color-accent)] rounded-lg flex items-center justify-center mb-2">
                       <MapPin className="w-4 h-4 text-[var(--color-primary)]" />
                     </div>
-                    <p className="text-sm font-bold text-[var(--color-textPrimary)] leading-tight line-clamp-2">{homeRouteMetrics.locationValue}</p>
+                    <p className="text-sm font-bold text-[var(--color-textPrimary)] leading-tight line-clamp-2">{homeRouteMetrics?.locationValue ?? nextClass.location.split(',')[0]}</p>
                     <p className="text-xs text-[var(--color-textMuted)] mt-0.5">Location</p>
                     <p className="text-[11px] text-[var(--color-textSecondary)] mt-1 leading-tight">{nextClass.startTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</p>
                   </div>
@@ -206,9 +208,13 @@ export function WelcomeSection({
                     <div className="w-8 h-8 bg-[var(--color-accent)] rounded-lg flex items-center justify-center mb-2">
                       <Navigation2 className="w-4 h-4 text-[var(--color-secondary)]" />
                     </div>
-                    <p className="text-lg font-bold text-[var(--color-textPrimary)]">{homeRouteMetrics.leaveInValue}</p>
+                    {homeRouteLoading ? (
+                      <Loader2 className="w-5 h-5 animate-spin text-[var(--color-textMuted)]" />
+                    ) : (
+                      <p className="text-lg font-bold text-[var(--color-textPrimary)]">{homeRouteMetrics?.leaveInValue ?? '—'}</p>
+                    )}
                     <p className="text-xs text-[var(--color-textMuted)] mt-0.5">Commute</p>
-                    <p className="text-[11px] text-[var(--color-textSecondary)] mt-1 leading-tight">{homeRouteMetrics.leaveInDetail}</p>
+                    <p className="text-[11px] text-[var(--color-textSecondary)] mt-1 leading-tight">{homeRouteLoading ? 'Loading…' : (homeRouteMetrics?.leaveInDetail ?? '—')}</p>
                   </div>
                 </div>
                 <div className="bg-white p-4">
@@ -216,9 +222,13 @@ export function WelcomeSection({
                     <div className="w-8 h-8 bg-[var(--color-accent)] rounded-lg flex items-center justify-center mb-2">
                       <Clock className="w-4 h-4 text-[var(--color-primary)]" />
                     </div>
-                    <p className="text-lg font-bold text-[var(--color-textPrimary)]">{homeRouteMetrics.leaveByValue}</p>
-                    <p className="text-xs text-[var(--color-textMuted)] mt-0.5">Leave by</p>
-                    <p className="text-[11px] text-[var(--color-textSecondary)] mt-1 leading-tight">{homeRouteMetrics.leaveByDetail}</p>
+                    {homeRouteLoading ? (
+                      <Loader2 className="w-5 h-5 animate-spin text-[var(--color-textMuted)]" />
+                    ) : (
+                      <p className="text-lg font-bold text-[var(--color-textPrimary)]">{homeRouteMetrics?.leaveByValue ?? '—'}</p>
+                    )}
+                    <p className="text-xs text-[var(--color-textMuted)] mt-0.5">Leave home by</p>
+                    <p className="text-[11px] text-[var(--color-textSecondary)] mt-1 leading-tight">{homeRouteLoading ? 'Loading…' : `${homeRouteMetrics?.leaveByValue ?? '—'} to catch the bus`}</p>
                   </div>
                 </div>
               </div>
@@ -271,6 +281,78 @@ export function WelcomeSection({
           </div>
         </div>
       )}
+
+      {/* Class Schedule */}
+      {schedule.length > 0 && (() => {
+        const now = currentTime;
+        const todayStr = now.toDateString();
+
+        // Collect the days we want to show: today + next 6 calendar days that have classes
+        const dayMap = new Map<string, { label: string; classes: Class[] }>();
+        for (const cls of schedule) {
+          const d = cls.startTime;
+          if (isNaN(d.getTime())) continue;
+          const key = d.toDateString();
+          if (!dayMap.has(key)) {
+            const isToday = key === todayStr;
+            const isTomorrow = key === new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toDateString();
+            const label = isToday ? 'Today' : isTomorrow ? 'Tomorrow' : d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+            dayMap.set(key, { label, classes: [] });
+          }
+          dayMap.get(key)!.classes.push(cls);
+        }
+
+        // Sort days chronologically, cap at 7 days out
+        const cutoff = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7);
+        const days = [...dayMap.entries()]
+          .filter(([, { classes }]) => classes[0].startTime <= cutoff)
+          .sort(([a], [b]) => new Date(a).getTime() - new Date(b).getTime());
+
+        if (days.length === 0) return null;
+
+        return (
+          <div className="bg-white rounded-2xl border border-[var(--color-border)] shadow-sm mb-4 overflow-hidden">
+            <div className="px-4 pt-4 pb-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-textMuted)]">My Classes</p>
+            </div>
+            {days.map(([dayKey, { label, classes }], dayIdx) => {
+              const isToday = dayKey === todayStr;
+              const sorted = [...classes].sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+              return (
+                <div key={dayKey}>
+                  {dayIdx > 0 && <div className="h-px bg-[var(--color-border)] mx-4" />}
+                  <div className="px-4 py-2">
+                    <p className={`text-[11px] font-semibold uppercase tracking-wide mb-1.5 ${isToday ? 'text-[var(--color-primary)]' : 'text-[var(--color-textMuted)]'}`}>{label}</p>
+                    <div className="space-y-1">
+                      {sorted.map((cls) => {
+                        const past = isToday && cls.endTime < now;
+                        const active = isToday && cls.startTime <= now && cls.endTime >= now;
+                        const timeStr = cls.startTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+                        return (
+                          <div
+                            key={cls.id}
+                            className={`flex items-center gap-2.5 rounded-xl px-3 py-2 ${active ? 'bg-[var(--color-accent)] border border-[var(--color-primary)]/20' : 'bg-[var(--color-background)]'} ${past ? 'opacity-40' : ''}`}
+                          >
+                            <span className="text-base leading-none">{cls.emoji || '📚'}</span>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold text-[var(--color-textPrimary)] truncate">{cls.code}</p>
+                              {cls.location && (
+                                <p className="text-xs text-[var(--color-textMuted)] truncate">{cls.location}</p>
+                              )}
+                            </div>
+                            <p className={`text-xs font-medium shrink-0 ${active ? 'text-[var(--color-primary)]' : 'text-[var(--color-textSecondary)]'}`}>{timeStr}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            <div className="h-2" />
+          </div>
+        );
+      })()}
 
       {!hasClassesRemainingToday && starredContent && <div className="mb-4">{starredContent}</div>}
 
