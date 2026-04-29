@@ -1,6 +1,34 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+const LOCAL_API_BASE_URL = 'http://127.0.0.1:8000';
+const AZURE_API_BASE_URL = 'https://nextstop-dmfhe5avfkbnetcw.canadacentral-01.azurewebsites.net';
+const configuredApiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').trim();
+
+function defaultApiBaseUrl() {
+  if (typeof window === 'undefined') return LOCAL_API_BASE_URL;
+
+  const isLocalBrowser = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+  const isNativeWebView = window.location.protocol === 'capacitor:' || window.location.protocol === 'ionic:';
+  return isLocalBrowser && !isNativeWebView ? LOCAL_API_BASE_URL : AZURE_API_BASE_URL;
+}
+
+const API_BASE_URL = configuredApiBaseUrl || defaultApiBaseUrl();
 const DEFAULT_REQUEST_TIMEOUT_MS = 15000;
 const ROUTE_PLAN_TIMEOUT_MS = 25000;
+
+type ApiRequestFailureReason = 'timeout' | 'cancelled' | 'network';
+
+class ApiRequestError extends Error {
+  reason: ApiRequestFailureReason;
+
+  constructor(reason: ApiRequestFailureReason, message: string) {
+    super(message);
+    this.name = 'ApiRequestError';
+    this.reason = reason;
+  }
+}
+
+export function isBackendUnavailableError(error: unknown) {
+  return error instanceof ApiRequestError && (error.reason === 'network' || error.reason === 'timeout');
+}
 
 async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS): Promise<Response> {
   const controller = new AbortController();
@@ -12,19 +40,65 @@ async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs =
       init.signal.addEventListener('abort', abortFromCaller, { once: true });
     }
   }
-  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  let timedOut = false;
+  const timeout = window.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
   try {
     const { signal: _signal, ...fetchInit } = init;
     return await fetch(url, { ...fetchInit, signal: controller.signal });
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {
-      throw new Error(`Request timed out after ${Math.round(timeoutMs / 1000)} seconds`);
+      if (init.signal?.aborted && !timedOut) {
+        throw new ApiRequestError('cancelled', 'Request was cancelled');
+      }
+      throw new ApiRequestError('timeout', `Request timed out after ${Math.round(timeoutMs / 1000)} seconds`);
+    }
+    if (error instanceof TypeError) {
+      throw new ApiRequestError('network', 'Network request failed. The backend may be unreachable or blocking this app origin.');
     }
     throw error;
   } finally {
     window.clearTimeout(timeout);
     init.signal?.removeEventListener('abort', abortFromCaller);
   }
+}
+
+async function responseErrorMessage(response: Response, fallback: string) {
+  let detail: string | null = null;
+
+  try {
+    const data = await response.clone().json() as { detail?: unknown; message?: unknown; error?: unknown };
+    const rawDetail = data.detail ?? data.message ?? data.error;
+    if (typeof rawDetail === 'string') {
+      detail = rawDetail;
+    } else if (Array.isArray(rawDetail)) {
+      detail = rawDetail
+        .map((item) => {
+          if (typeof item === 'string') return item;
+          if (item && typeof item === 'object' && 'msg' in item) {
+            return String((item as { msg?: unknown }).msg);
+          }
+          return JSON.stringify(item);
+        })
+        .filter(Boolean)
+        .join('; ');
+    }
+  } catch {
+    // Some backend errors are plain text or empty; try text below.
+  }
+
+  if (!detail) {
+    try {
+      const text = (await response.clone().text()).trim();
+      detail = text ? text.slice(0, 240) : null;
+    } catch {
+      detail = null;
+    }
+  }
+
+  return detail ? `${fallback}: ${detail}` : fallback;
 }
 
 export interface ApiBusRoute {
@@ -47,6 +121,7 @@ export interface ApiBusRoute {
   seats_left: number | null;
   recommendation: string;
   vehicle_id?: number;
+  prediction_trip_id?: number | string | null;
   trip_id?: number;
   direction_id?: number | null;
   route_id?: string | null;
@@ -58,6 +133,8 @@ export interface ApiBusRoute {
   ride_instruction?: string | null;
   occupancy_percent?: number | null;
   boarding_before_alighting?: boolean | null;
+  match_source?: 'google_transit' | 'gtfs_schedule' | 'live_prediction' | string | null;
+  direction_match_source?: 'google_stops' | 'gtfs_direction' | 'segment_geometry' | string | null;
   boarding_stop?: {
     stop_id: string;
     stop_name: string;
@@ -156,8 +233,14 @@ export interface RouteVehicle {
   heading?: number | null;
   reported_at?: string | null;
   arrival_minutes?: number | null;
+  arrival_source?: 'boarding_prediction' | null;
   headsign?: string | null;
   occupancy_percent?: number | null;
+  occupancy_status?: string | null;
+  is_selected_vehicle?: boolean;
+  match_confidence?: 'exact_vehicle' | 'boarding_prediction' | 'route_direction_only';
+  is_direction_verified?: boolean;
+  direction_match_source?: 'selected_vehicle' | 'boarding_prediction' | 'gtfs_trip' | 'headsign' | null;
 }
 
 export interface PlanTripResponse {
@@ -261,24 +344,25 @@ export interface ReverseLocationResult {
 export interface LocalEat {
   id: string;
   name: string;
-  type: 'cafe' | 'restaurant' | 'quick-bites' | 'dessert';
+  type: 'cafe' | 'restaurant' | 'quick-bites' | 'dessert' | string;
   emoji: string;
   rating: number | null;
-  price_level: 1 | 2 | 3 | 4;
+  price_level: 1 | 2 | 3 | 4 | string | null;
   distance_miles: number | null;
   walk_time_minutes: number | null;
-  address: string;
-  hours: string;
-  description: string;
-  is_open: boolean;
+  address: string | null;
+  hours: string | string[] | null;
+  description: string | null;
+  is_open: boolean | null;
   is_favorite: boolean;
-  cuisine_type: string;
+  cuisine_type: string | null;
   student_discount?: {
-    percentage: number;
-    details: string;
+    percentage?: number | null;
+    details?: string | null;
     valid_until?: string | null;
     is_new?: boolean;
   } | null;
+  is_static_student_discount?: boolean;
 }
 
 export interface FetchLocalEatsOptions {
@@ -359,7 +443,7 @@ export async function fetchPlanTrip(
   userLocation?: Coordinates | null,
   destinationLocation?: Coordinates | null,
   signal?: AbortSignal,
-  options?: { mode?: 'all' | 'bus'; includeWalk?: boolean }
+  options?: { mode?: 'full' | 'bus'; includeWalk?: boolean }
 ): Promise<PlanTripResponse> {
   const params = new URLSearchParams({ start, destination });
   if (userLocation) {
@@ -380,7 +464,7 @@ export async function fetchPlanTrip(
   const response = await fetchWithTimeout(url, { signal }, ROUTE_PLAN_TIMEOUT_MS);
 
   if (!response.ok) {
-    throw new Error(`Backend request failed with status ${response.status}`);
+    throw new Error(await responseErrorMessage(response, `Route planner failed with status ${response.status}`));
   }
 
   return response.json();
@@ -408,7 +492,7 @@ export async function fetchLocalEats({
     signal,
   });
   if (!response.ok) {
-    throw new Error(`Local Eats request failed with status ${response.status}`);
+    throw new Error(await responseErrorMessage(response, `Local Eats request failed with status ${response.status}`));
   }
   const data = await response.json();
   return Array.isArray(data) ? data : data.eateries ?? [];
@@ -686,13 +770,31 @@ export async function fetchGtfsShape(routeId: string, directionId?: number): Pro
   return response.json();
 }
 
-export async function fetchRouteVehicles(routeId: string, directionId?: number, boardingStopId?: string): Promise<RouteVehicle[]> {
+export async function fetchRouteVehicles(
+  routeId: string,
+  directionId?: number,
+  boardingStopId?: string,
+  options?: {
+    selectedVehicleId?: number | string | null;
+    selectedPredictionTripId?: number | string | null;
+    selectedDepartureTime?: string | null;
+  },
+): Promise<RouteVehicle[]> {
   const params = new URLSearchParams({ route_id: routeId });
   if (directionId !== undefined) {
     params.set('direction_id', String(directionId));
   }
   if (boardingStopId) {
     params.set('boarding_stop_id', boardingStopId);
+  }
+  if (options?.selectedVehicleId !== undefined && options.selectedVehicleId !== null) {
+    params.set('selected_vehicle_id', String(options.selectedVehicleId));
+  }
+  if (options?.selectedPredictionTripId !== undefined && options.selectedPredictionTripId !== null) {
+    params.set('selected_prediction_trip_id', String(options.selectedPredictionTripId));
+  }
+  if (options?.selectedDepartureTime) {
+    params.set('selected_departure_time', options.selectedDepartureTime);
   }
   const response = await fetch(`${API_BASE_URL}/route/vehicles?${params.toString()}`);
   if (!response.ok) {

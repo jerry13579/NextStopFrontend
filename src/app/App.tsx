@@ -10,7 +10,6 @@ import { BusMap } from './components/BusMap';
 import { StarredLocations, type StarredLocation } from './components/StarredLocations';
 import { LoginPage } from './components/LoginPage';
 import {
-  API_BASE_URL,
   ApiBusRoute,
   CalendarEvent,
   CalendarCommutePreview,
@@ -20,6 +19,7 @@ import {
   fetchRouteVehicles,
   fetchServiceAlert,
   fetchPlanTrip,
+  isBackendUnavailableError,
   fetchSession,
   fetchTrips,
   fetchUserPreferences,
@@ -297,11 +297,14 @@ function busReducesWalking(bus: BusRoute, directWalkTimeMinutes: number | null) 
     (bus.walkTime + bus.destinationWalkTime) < directWalkTimeMinutes;
 }
 
-function routePlanKey(destination: string, position: Coordinates | null) {
-  const positionKey = position
-    ? `${position.lat.toFixed(5)},${position.lng.toFixed(5)}`
+function routePlanKey(destination: string, origin: Coordinates | null, destinationPosition?: Coordinates | null) {
+  const originKey = origin
+    ? `${origin.lat.toFixed(5)},${origin.lng.toFixed(5)}`
     : 'geocode';
-  return `${destination.trim().toLowerCase()}|${positionKey}`;
+  const destinationKey = destinationPosition
+    ? `${destinationPosition.lat.toFixed(5)},${destinationPosition.lng.toFixed(5)}`
+    : 'geocode';
+  return `${destination.trim().toLowerCase()}|${originKey}|${destinationKey}`;
 }
 
 function formatClockTime(value?: string | Date | null) {
@@ -375,18 +378,27 @@ function boardingLikelihood(capacity?: number | null) {
   };
 }
 
-function occupancyForBus(bus: BusRoute, routeVehicles: RouteVehicle[]) {
-  if (typeof bus.occupancyPercent === 'number') return bus.occupancyPercent;
-  const routeVehicleOccupancies = routeVehicles
-    .map((vehicle) => vehicle.occupancy_percent)
-    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+type OccupancyDisplay = {
+  percent: number | null;
+  source: 'planned' | 'unknown';
+  label: string;
+};
+
+function occupancyDisplayForBus(bus: BusRoute, routeVehicles: RouteVehicle[]): OccupancyDisplay {
+  if (typeof bus.occupancyPercent === 'number') {
+    return { percent: bus.occupancyPercent, source: 'planned', label: 'planned bus capacity' };
+  }
   const selectedVehicle = selectedVehicleForBoarding(routeVehicles, bus);
   if (typeof selectedVehicle?.occupancy_percent === 'number') {
-    return selectedVehicle.occupancy_percent;
+    return { percent: selectedVehicle.occupancy_percent, source: 'planned', label: 'live bus capacity' };
   }
-  return routeVehicleOccupancies.length > 0
-    ? Math.round(routeVehicleOccupancies.reduce((sum, value) => sum + value, 0) / routeVehicleOccupancies.length)
-    : null;
+  const nextVehicle = routeVehicles.find(
+    (vehicle) => vehicle.is_direction_verified === true && typeof vehicle.occupancy_percent === 'number',
+  );
+  if (nextVehicle && typeof nextVehicle.occupancy_percent === 'number') {
+    return { percent: nextVehicle.occupancy_percent, source: 'planned', label: 'live bus capacity' };
+  }
+  return { percent: null, source: 'unknown', label: 'capacity unavailable' };
 }
 
 function vehicleCacheKey(bus: BusRoute) {
@@ -394,6 +406,7 @@ function vehicleCacheKey(bus: BusRoute) {
     bus.apiBus?.route_short_name || bus.routeNumber,
     typeof bus.apiBus?.direction_id === 'number' ? bus.apiBus.direction_id : 'any',
     bus.apiBus?.boarding_stop?.stop_id || 'any',
+    bus.apiBus?.vehicle_id ?? bus.apiBus?.prediction_trip_id ?? bus.departureTime ?? bus.id,
   ].join('|');
 }
 
@@ -431,11 +444,17 @@ function conciseWalkingInstruction(route?: ApiBusRoute['walk_to_stop'] | ApiBusR
 
 function selectedVehicleForBoarding(routeVehicles: RouteVehicle[], bus: BusRoute | null) {
   if (!bus) return null;
-  const matchingVehicle = routeVehicles.find((vehicle) => vehicle.vehicle_id === bus.apiBus?.vehicle_id);
-  if (matchingVehicle) return matchingVehicle;
-  return [...routeVehicles]
-    .filter((vehicle) => typeof vehicle.arrival_minutes === 'number')
-    .sort((a, b) => (a.arrival_minutes ?? Number.POSITIVE_INFINITY) - (b.arrival_minutes ?? Number.POSITIVE_INFINITY))[0] || routeVehicles[0] || null;
+  return routeVehicles.find((vehicle) => {
+    if (vehicle.is_selected_vehicle && (
+      vehicle.match_confidence === 'exact_vehicle' ||
+      vehicle.match_confidence === 'boarding_prediction'
+    )) {
+      return true;
+    }
+    return bus.apiBus?.vehicle_id != null &&
+      vehicle.vehicle_id != null &&
+      String(vehicle.vehicle_id) === String(bus.apiBus.vehicle_id);
+  }) || null;
 }
 
 function determineNavigationStep(
@@ -483,9 +502,10 @@ function buildNavigationSteps(
   if (!bus?.apiBus?.boarding_stop || !bus.apiBus.alighting_stop) return [];
 
   const selectedVehicle = selectedVehicleForBoarding(routeVehicles, bus);
-  const fullness = bus.occupancyPercent === null || bus.occupancyPercent === undefined
+  const plannedOccupancy = bus.occupancyPercent ?? selectedVehicle?.occupancy_percent ?? null;
+  const fullness = plannedOccupancy === null || plannedOccupancy === undefined
     ? 'Capacity unknown'
-    : `${bus.occupancyPercent}% capacity`;
+    : `${plannedOccupancy}% capacity`;
   const boardingStopName = bus.apiBus.boarding_stop.stop_name;
   const alightingStopName = bus.apiBus.alighting_stop.stop_name;
   const headsign = bus.headsign || bus.apiBus.trip_headsign || 'Destination';
@@ -496,9 +516,9 @@ function buildNavigationSteps(
   const finalArrivalTime = new Date(exitTime.getTime() + bus.destinationWalkTime * 60000);
   const finalArrivalLabel = formatClockTime(finalArrivalTime);
   const stopsRemaining = String(bus.apiBus.stop_count ?? Math.max((bus.apiBus.segment_stops?.length ?? 1) - 1, 1));
-  const crowdingPercent = bus.occupancyPercent === null || bus.occupancyPercent === undefined
+  const crowdingPercent = plannedOccupancy === null || plannedOccupancy === undefined
     ? 'Unknown'
-    : `${bus.occupancyPercent}%`;
+    : `${plannedOccupancy}%`;
 
   return [
     {
@@ -849,12 +869,6 @@ function getMainRecommendation(buses: BusRoute[], nextClass: Class | null, curre
   };
 }
 
-function occupancyNoise(id: string): number {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (Math.imul(31, h) + id.charCodeAt(i)) | 0;
-  return ((h % 11) + 11) % 11 - 5;
-}
-
 function getAiAnalysisMessage(capacity: number, busId: string): string {
   const tiers = [
     [
@@ -1054,14 +1068,7 @@ export default function App() {
   // Keep a stable ref so the tap handler always has fresh closures without re-registering.
   const notificationTapRef = useRef<(destination: string) => void>(() => {});
   notificationTapRef.current = (destination: string) => {
-    forceNextRoutePlan();
-    setRouteDestination(destination);
-    setDestinationPosition(null);
-    setSearchQuery(destination);
-    setSearchResults([]);
-    setSelectedBusId(null);
-    setWalkingDirectionsDismissed(false);
-    setActiveSection('routes');
+    beginRoutePlan(destination, null);
   };
 
   useEffect(() => {
@@ -1621,14 +1628,22 @@ export default function App() {
           null,
           controller.signal,
           { mode: 'bus', includeWalk: false },
-        );
+        ).catch((error) => {
+          if (controller.signal.aborted || isBackendUnavailableError(error)) throw error;
+          console.warn('[Routes] Home bus-only plan failed; retrying standard plan', error);
+          return fetchPlanTrip(
+            'Current location',
+            location!,
+            routePlanningLocation,
+            null,
+            controller.signal,
+          );
+        });
         if (ignore) return;
 
         const normalized = plan.available_buses.map(normalizeApiBus);
         const directWalk = plan.direct_walk?.duration_minutes ?? null;
-        const buses = normalized
-          .filter((bus) => busReducesWalking(bus, directWalk))
-          .sort((a, b) => (a.totalTripTimeMinutes - b.totalTripTimeMinutes) || (a.eta - b.eta));
+        const buses = normalized.filter((bus) => busReducesWalking(bus, directWalk));
 
         setHomeScreenBuses(buses);
         setHomeScreenDirectWalkMinutes(directWalk);
@@ -1685,7 +1700,7 @@ export default function App() {
       return;
     }
 
-    const currentRoutePlanKey = routePlanKey(destination, routePlanningLocation);
+    const currentRoutePlanKey = routePlanKey(destination, routePlanningLocation, destinationPosition);
     const now = Date.now();
     const isSameRoutePlan = lastRoutePlanKeyRef.current === currentRoutePlanKey;
     const elapsedSinceLastPlan = now - lastRoutePlanAtRef.current;
@@ -1704,17 +1719,23 @@ export default function App() {
           routePlanningLocation,
           destinationPosition,
           routePlanController.signal,
-        );
+        ).catch((error) => {
+          if (routePlanController.signal.aborted || isBackendUnavailableError(error)) throw error;
+          console.warn('[Routes] Standard route plan failed; retrying bus-only plan', error);
+          return fetchPlanTrip(
+            'Current location',
+            destination,
+            routePlanningLocation,
+            destinationPosition,
+            routePlanController.signal,
+            { mode: 'bus', includeWalk: false },
+          );
+        });
         if (ignore) return;
 
         const normalizedBuses = plan.available_buses.map(normalizeApiBus);
         const directWalkDuration = plan.direct_walk?.duration_minutes ?? null;
-        const filteredBuses = normalizedBuses
-          .filter((bus) => busReducesWalking(bus, directWalkDuration))
-          .sort((a, b) => (
-            (a.totalTripTimeMinutes - b.totalTripTimeMinutes) ||
-            (a.eta - b.eta)
-          ));
+        const filteredBuses = normalizedBuses.filter((bus) => busReducesWalking(bus, directWalkDuration));
         setAllBuses(filteredBuses);
         setDirectWalkTimeMinutes(directWalkDuration);
         setDirectWalkRoute(plan.direct_walk ?? null);
@@ -1724,7 +1745,7 @@ export default function App() {
           return filteredBuses[0]?.id ?? (directWalkDuration !== null ? WALK_ROUTE_OPTION_ID : null);
         });
         lastRoutePlanAtRef.current = Date.now();
-        lastRoutePlanKeyRef.current = currentRoutePlanKey;
+        lastRoutePlanKeyRef.current = routePlanKey(destination, routePlanningLocation, plan.map_data.destination_marker);
         setRouteError(null);
         setBusStopPosition(plan.map_data.origin_stop_marker ?? plan.map_data.destination_marker);
         setDestinationPosition((current) =>
@@ -1735,10 +1756,12 @@ export default function App() {
         if (ignore) return;
         console.error('[Routes] Route plan failed', error);
         const message = error instanceof Error ? error.message : 'Unknown error';
-        setRouteError(`Could not load live route data from ${API_BASE_URL}. ${message}`);
+        setRouteError(`Could not plan a route for ${destination}. ${message}`);
         setAllBuses([]);
         setDirectWalkTimeMinutes(null);
         setDirectWalkRoute(null);
+        setRouteVehicles([]);
+        setRouteVehiclesByKey({});
         setIsRouteLoading(false);
       }
     }
@@ -1798,6 +1821,9 @@ export default function App() {
     setSelectedBusId(null);
     setDirectWalkRoute(null);
     setDirectWalkTimeMinutes(null);
+    setRouteError(null);
+    setRouteVehicles([]);
+    setRouteVehiclesByKey({});
     setWalkingDirectionsDismissed(true);
     setIsInAppNavigating(false);
     setIsRouteLoading(false);
@@ -1820,40 +1846,42 @@ export default function App() {
     setRoutePlanRequestNonce((value) => value + 1);
   };
 
+  const beginRoutePlan = (label: string, position: Coordinates | null = null) => {
+    const destinationLabel = label.trim() || 'Selected destination';
+    forceNextRoutePlan();
+    setRouteError(null);
+    setRouteDestination(destinationLabel);
+    setDestinationPosition(position);
+    setSearchQuery(destinationLabel);
+    setSearchResults([]);
+    setSelectedBusId(null);
+    setRouteVehicles([]);
+    setRouteVehiclesByKey({});
+    setDirectWalkRoute(null);
+    setDirectWalkTimeMinutes(null);
+    setWalkingDirectionsDismissed(false);
+    setBoardingRemindersExpanded(false);
+    setExpandedAnalysisBusIds(new Set());
+    setIsInAppNavigating(false);
+    setIsRouteLoading(Boolean(routePlanningLocation));
+    setActiveSection('routes');
+  };
+
   const openRoutesForNextClass = () => {
-    if (nextClass?.location) {
-      forceNextRoutePlan();
-      setRouteDestination(nextClass.location);
-      setDestinationPosition(null);
-      setSearchQuery(nextClass.location);
-      setSearchResults([]);
-      setWalkingDirectionsDismissed(false);
+    const targetClass = nextClassToday ?? nextClass;
+    if (targetClass?.location) {
+      beginRoutePlan(targetClass.location, null);
+      return;
     }
     setActiveSection('routes');
   };
 
   const openRoutesForStarredLocation = (location: StarredLocation) => {
-    forceNextRoutePlan();
-    setRouteDestination(location.name || location.address);
-    setDestinationPosition({ lat: location.lat, lng: location.lng });
-    setSearchQuery(location.name || location.address);
-    setSearchResults([]);
-    setSelectedBusId(null);
-    setWalkingDirectionsDismissed(false);
-    setIsInAppNavigating(false);
-    setActiveSection('routes');
+    beginRoutePlan(location.name || location.address, { lat: location.lat, lng: location.lng });
   };
 
   const navigateToSpecialPlace = (place: SpecialPlace) => {
-    forceNextRoutePlan();
-    setRouteDestination(place.name);
-    setDestinationPosition({ lat: place.lat, lng: place.lng });
-    setSearchQuery(place.name);
-    setSearchResults([]);
-    setSelectedBusId(null);
-    setWalkingDirectionsDismissed(false);
-    setIsInAppNavigating(false);
-    setActiveSection('routes');
+    beginRoutePlan(place.name, { lat: place.lat, lng: place.lng });
   };
 
   const isNearHome = homeAddress !== null && deviceLocation !== null &&
@@ -1866,21 +1894,12 @@ export default function App() {
     allBuses
       .filter((bus: BusRoute) => {
         if (!busReducesWalking(bus, directWalkTimeMinutes)) return false;
-        // Drop buses going the wrong direction: the alighting stop must be closer
-        // to the destination than the boarding stop is.
-        if (destinationPosition && bus.apiBus?.alighting_stop) {
-          const ref = bus.apiBus.boarding_stop ?? userPosition;
-          const d = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) =>
-            (a.lat - b.lat) ** 2 + (a.lng - b.lng) ** 2;
-          if (d(bus.apiBus.alighting_stop, destinationPosition) >= d(ref, destinationPosition)) return false;
-        }
+        if (bus.apiBus?.boarding_before_alighting === false) return false;
+        const stops = [bus.apiBus?.boarding_stop, bus.apiBus?.alighting_stop].filter(Boolean);
+        if (stops.some((stop) => !Number.isFinite(stop?.lat) || !Number.isFinite(stop?.lng))) return false;
         return true;
-      })
-      .sort((a: BusRoute, b: BusRoute) => (
-        (a.totalTripTimeMinutes - b.totalTripTimeMinutes) ||
-        (a.eta - b.eta)
-      )),
-    [allBuses, directWalkTimeMinutes, destinationPosition, userPosition],
+      }),
+    [allBuses, directWalkTimeMinutes],
   );
   const selectedBus = selectedBusId === WALK_ROUTE_OPTION_ID
     ? null
@@ -1919,6 +1938,7 @@ export default function App() {
 
   const handleMapNavigateRequest = async (destination: Coordinates, placeName?: string) => {
     setIsRouteLoading(true);
+    setRouteError(null);
     setWalkingDirectionsDismissed(false);
     let label = placeName || 'Selected destination';
     if (!placeName) {
@@ -1929,14 +1949,7 @@ export default function App() {
         label = 'Selected destination';
       }
     }
-    forceNextRoutePlan();
-    setDestinationPosition(destination);
-    setRouteDestination(label);
-    setSearchQuery(label);
-    setSearchResults([]);
-    setSelectedBusId(null);
-    setIsInAppNavigating(false);
-    setActiveSection('routes');
+    beginRoutePlan(label, destination);
   };
 
   useEffect(() => {
@@ -1964,6 +1977,11 @@ export default function App() {
               bus.apiBus?.route_short_name || bus.routeNumber,
               typeof bus.apiBus?.direction_id === 'number' ? bus.apiBus.direction_id : undefined,
               bus.apiBus?.boarding_stop?.stop_id || undefined,
+              {
+                selectedVehicleId: bus.apiBus?.vehicle_id ?? null,
+                selectedPredictionTripId: bus.apiBus?.prediction_trip_id ?? null,
+                selectedDepartureTime: bus.departureTime ?? null,
+              },
             );
             return [key, vehicles] as const;
           } catch {
@@ -2204,6 +2222,7 @@ export default function App() {
             alternates,
           })),
         ].sort((a, b) => a.totalTripTimeMinutes - b.totalTripTimeMinutes);
+        const showNoRouteTile = Boolean(routeDestination) && sortedRouteTiles.length === 0;
 
         return (
           <div className="fixed inset-0 z-0 bg-[var(--color-background)]">
@@ -2256,15 +2275,7 @@ export default function App() {
                           <button
                             key={result.id}
                             onClick={() => {
-                              setIsRouteLoading(true);
-                              setWalkingDirectionsDismissed(false);
-                              forceNextRoutePlan();
-                              setRouteDestination(result.name || result.address || 'Selected destination');
-                              setDestinationPosition({ lat: result.lat, lng: result.lng });
-                              setSearchQuery(result.name || result.address || 'Selected destination');
-                              setSearchResults([]);
-                              setIsInAppNavigating(false);
-                              setActiveSection('routes');
+                              beginRoutePlan(result.name || result.address || 'Selected destination', { lat: result.lat, lng: result.lng });
                             }}
                             className="block w-full border-b border-[var(--color-border)] px-4 py-3 text-left last:border-b-0"
                           >
@@ -2381,6 +2392,18 @@ export default function App() {
                       </div>
                     </div>
                   </div>
+                  ) : showNoRouteTile ? (
+                  <div className="min-w-[84vw] max-w-[84vw] snap-center rounded-3xl border border-[var(--color-border)] bg-white/95 p-5 shadow-xl">
+                    <div className="flex min-h-[220px] flex-col items-center justify-center text-center">
+                      <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[var(--color-accent)] text-[var(--color-primary)]">
+                        <Bus className="h-5 w-5" />
+                      </div>
+                      <p className="mt-3 text-base font-semibold text-[var(--color-textPrimary)]">No route options available</p>
+                      <p className="mt-1 max-w-xs text-sm text-[var(--color-textMuted)]">
+                        Try another destination or check back when live transit data updates.
+                      </p>
+                    </div>
+                  </div>
                   ) : sortedRouteTiles.map((tile) => tile.kind === 'walk' ? (
                   <div
                     key={tile.id}
@@ -2450,13 +2473,11 @@ export default function App() {
                   ) : (() => {
                     const bus = tile.bus!;
                     const cachedRouteVehicles = routeVehiclesByKey[vehicleCacheKey(bus)] || [];
-                    const rawOccupancy = occupancyForBus(
+                    const occupancyDisplay = occupancyDisplayForBus(
                       bus,
                       selectedBus?.id === bus.id && routeVehicles.length > 0 ? routeVehicles : cachedRouteVehicles,
                     );
-                    const displayedOccupancy = rawOccupancy !== null && rawOccupancy !== undefined
-                      ? Math.max(0, Math.min(100, rawOccupancy + occupancyNoise(bus.id)))
-                      : rawOccupancy;
+                    const displayedOccupancy = occupancyDisplay.percent;
                     const capacityStatus = boardingLikelihood(displayedOccupancy);
                     const totalWalkingTime = bus.walkTime + bus.destinationWalkTime;
                     const estimatedArrivalLabel = formatArrivalTimeFromNow(currentTime, bus.totalTripTimeMinutes) || 'Soon';
@@ -2571,7 +2592,7 @@ export default function App() {
                             }`}>
                           {displayedOccupancy === null || displayedOccupancy === undefined ? '--' : `${displayedOccupancy}%`}
                             </p>
-                            <p className="text-xs font-medium text-[var(--color-textMuted)]">% capacity</p>
+                            <p className="text-xs font-medium text-[var(--color-textMuted)]">{occupancyDisplay.label}</p>
                           </div>
                         </div>
                         <div className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${capacityStatus.tone}`}>
@@ -2600,7 +2621,13 @@ export default function App() {
         );
 
       case 'local-eats':
-        return <LocalEatsSection token={sessionToken} userLocation={deviceLocation} />;
+        return (
+          <LocalEatsSection
+            token={sessionToken}
+            userLocation={deviceLocation}
+            onNavigate={(label) => beginRoutePlan(label, null)}
+          />
+        );
 
       case 'settings':
         return (

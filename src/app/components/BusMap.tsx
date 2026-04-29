@@ -166,10 +166,17 @@ function distanceMeters(pointA?: { lat: number; lng: number } | null, pointB?: {
 }
 
 function selectPrimaryVehicle(routeVehicles: RouteVehicle[], selectedBus?: ApiBusRoute | null) {
-  const exactVehicle = routeVehicles.find((vehicle) => vehicle.vehicle_id === selectedBus?.vehicle_id);
-  if (exactVehicle) return exactVehicle;
-  return [...routeVehicles]
-    .sort((a, b) => (a.arrival_minutes ?? Number.POSITIVE_INFINITY) - (b.arrival_minutes ?? Number.POSITIVE_INFINITY))[0] || null;
+  return routeVehicles.find((vehicle) => {
+    if (vehicle.is_selected_vehicle && (
+      vehicle.match_confidence === 'exact_vehicle' ||
+      vehicle.match_confidence === 'boarding_prediction'
+    )) {
+      return true;
+    }
+    return selectedBus?.vehicle_id != null &&
+      vehicle.vehicle_id != null &&
+      String(vehicle.vehicle_id) === String(selectedBus.vehicle_id);
+  }) || null;
 }
 
 export function BusMap({
@@ -356,7 +363,7 @@ export function BusMap({
     }
 
     const selectedVehicle = selectPrimaryVehicle(routeVehicles, selectedBus);
-    if (selectedBus?.bus_position && routeVehicles.length === 0) {
+    if (selectedBus?.bus_position && !selectedVehicle) {
       if (!busMarkerRef.current) {
         busMarkerRef.current = new window.google.maps.Marker({
           map,
@@ -377,8 +384,7 @@ export function BusMap({
     routeVehicleMarkersRef.current.forEach((marker) => marker.setMap(null));
     routeVehicleMarkersRef.current = [];
     routeVehicles.forEach((vehicle) => {
-      const isCrowdMetricsBus = vehicle.vehicle_id === selectedBus?.vehicle_id ||
-        (selectedVehicle != null && vehicle.vehicle_id === selectedVehicle.vehicle_id);
+      const isCrowdMetricsBus = selectedVehicle != null && vehicle.vehicle_id === selectedVehicle.vehicle_id;
       const marker = new window.google.maps.Marker({
         map,
         position: { lat: vehicle.lat, lng: vehicle.lng },
